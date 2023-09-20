@@ -14,4 +14,4 @@ m = ScviModeler(args.output)
 m.read(args.data)
 m.setup_data()
 m.train(args.n_latent_values)
-m.write(f"{args.output_prefix}_latentReprs.h 
+m.write()
