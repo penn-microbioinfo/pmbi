@@ -1,4 +1,6 @@
 import anndata
+import os
+import typing
 import pathlib
 import re
 import pandas as pd
@@ -10,6 +12,9 @@ import seaborn as sns
 import muon as mu
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.axis
+import gc
+import pathlib
 
 global MT_CUT
 global NFEAT_CUT
@@ -20,17 +25,34 @@ NFEAT_CUT = (0.10, 0.95)
 NRNA_CUT = (0.10, 0.95)
 
 class Paneler(object):
-    def __init__(self, nrow, ncol, figsize=(3,3), layout="tight", format = "tiff", dpi = 400):
+    def __init__(self, nrow, ncol, output_prefix, figsize=(3,3), layout="tight", format = "tiff", dpi = 400):
+        Paneler.theme()
         self.nrow = nrow
         self.ncol = ncol
+        self.output_prefix = output_prefix
         self.figsize = figsize
         self.layout = layout
         self.format = format
         self.dpi = dpi
-        self.fig, self.axs = plt.subplots(nrows = self.nrow, ncols = self.ncol, figsize = self.figsize, layout = self.layout)
+        self.fig, self.axs = self._new_fig()
         self.panel_idx = 0
         self.image_num = 1
+        self.current_ax = self._get_ax((0,0))
 
+    def _new_fig(self):
+        return plt.subplots(nrows = self.nrow, ncols = self.ncol, figsize = self.figsize, layout = self.layout)
+    
+    @staticmethod
+    def theme():
+        plt.rcdefaults()
+        plt.rcParams.keys()
+        plt.rcParams.update({"font.sans-serif": "Arial",
+                             "font.size": 5,
+                             "figure.dpi": 300,
+                             "axes.titlesize": 6})
+        plt.rcParams["legend.frameon"] = False
+
+    @staticmethod
     def subplot_idx_to_pos(nrow, ncol, idx):
         r = int(np.floor(np.true_divide(idx, ncol))) 
         rem = idx % ncol
@@ -39,23 +61,111 @@ class Paneler(object):
             r = r % nrow
         return (r,c)
 
+    @staticmethod
+    def pos_to_subplot_idx(nrow: int, ncol: int, coords: tuple[int,int]) -> int:
+        row = coords[0]
+        col = coords[1]
+        if row > nrow-1 or col > ncol-1:
+            raise IndexError(f"coordinates {coords} outside of limits of panel with shape ({nrow}, {ncol})")
+        idx = ((row*ncol) + (col))
+        return idx
+
+    def _get_ax(self, coords: tuple[int,int]):
+        if self.panel_idx_out_of_bounds():
+            raise IndexError("paneler.panel_idx >= panel_dimensions")
+        else:
+            if self.nrow*self.ncol == 1:
+                ax = self.axs
+            elif self.nrow == 1 or self.ncol == 1:
+                ax = self.axs[coords[1]]
+            else:
+                r,c = coords 
+                ax = self.axs[r,c]
+            return ax
+
+    def panel_idx_out_of_bounds(self):
+        if self.panel_idx > (self.nrow*self.ncol)-1:
+            return True 
+        else:
+            return False
+
+    def next_ax(self):
+        if self.panel_idx_out_of_bounds():
+            self._advance_image()
+        coords = Paneler.subplot_idx_to_pos(self.nrow, self.ncol, self.panel_idx) 
+        print(self.image_num, coords)
+        self.current_ax = self._get_ax(coords)
+        self.panel_idx += 1
+        return self.current_ax
+
+    '''
     def insert(self, plt_function, **kwargs):
         if self.nrow*self.ncol == 1:
             plt_function(ax=self.ax, **kwargs)
-        elif self.nrow or self.ncol:
+        elif self.nrow or self.ncol == 1:
             plt_function(ax=self.ax[panel_idx], **kwargs)
         else:
             row,col = Paneler.subplot_idx_to_pos(self.nrow, self.ncol, self.panel_idx)
             plt_function(ax=self.ax[row,col], **kwargs)
+    '''
+    def subplots_adjust(self, **kwargs):
+        self.fig.subplots_adjust(**kwargs)
 
+    def _advance_image(self):
+        self.savefig(f"{self.output_prefix}_{self.image_num}.{self.format}")
+        self.fig, self.axs = self._new_fig()
+        self.image_num += 1
+        self.panel_idx = 0
 
-
+    def savefig(self, filename: typing.Optional[str] = None):
+        if filename is None:
+            filename = f"{self.output_prefix}_{self.image_num}.{self.format}"
+        self.subplots_adjust(hspace=0.5, wspace=0.5)
+        self.fig.savefig(filename)
+        plt.close(self.fig)
+        plt.clf()
+        gc.collect()
+  
 def read_matrix(matpath, **kwargs):
     matpath = pathlib.Path(matpath)
     if matpath.suffix == ".h5":
         return sc.read_10x_h5(str(matpath), **kwargs)
     elif matpath.suffix == ".h5ad":
         return anndata.read_h5ad(str(matpath), **kwargs)
+
+def read_h5ad_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
+    adatas = {}
+    for path in paths:
+        adatas[getkey(path)] = sc.read_h5ad(path)
+    return adatas
+
+def adata_to_gct(adata, outpath, layer = None):
+    adata = adata.copy()
+    if layer is not None:
+        adata.X = adata.layers[layer]
+    adata_df = adata.to_df().transpose().reset_index()
+    adata_df = adata_df.rename(columns={"index": "NAME"})
+    adata_df.insert(1, "Description", adata_df["NAME"])
+    with open(outpath ,'w') as out:
+        out.write("#1.2\n")
+        out.write(f"{len(adata.var_names)}\t{len(adata.obs_names)}\n")
+        adata_df.to_csv(out, sep='\t', index=False)
+
+def read_gct(gctpath: os.PathLike):
+    with open(gctpath, 'r') as gct:
+        # Skip first two lines of GCT (version and shape)
+        for _ in range(0,2):
+            gct.readline()
+        df = pd.read_csv(gct, sep='\t').transpose()
+        #print(df.iloc[0,:])
+        df.columns = df.iloc[0,:]
+        df = df.iloc[3:,:]
+        df = df.loc[~df.index.str.startswith("Signature")]
+        #df.index = [re.sub("Signature[.]set[.]overlap[.]percent[.]", "", x) for x in df.index]
+        #df.index = [re.sub("[.]", "-", x) for x in df.index]
+        #print(df)
+        return df
+#read_gct(f"/home/ubuntu/mnt/ankita/combined_adatas_by_donor/ssgsea/ssgsea2.0/{key.replace('-', '_')}_chenetal2020_bulkRNA-scores.gct")
 
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
@@ -92,6 +202,15 @@ def subplot_idx_to_pos(nrow, ncol, idx):
         r = r % nrow
     return (r,c)
 
+def percent_expressing(adata:anndata.AnnData, groupby: str, var_names: list, layer: str):
+    subadata = adata[:,var_names]
+    frame = pd.DataFrame(subadata.layers[layer].toarray())
+    frame.index = adata.obs_names
+    frame[groupby] = subadata.obs[groupby]
+    print(frame)
+    print(frame.groupby(groupby).agg(lambda x: len([v for v in x if v != 0.0])))
+
+
 def cluster_leiden(adata, resolutions):
     for r in resolutions:
         sc.tl.leiden(adata, resolution=r, key_added = f"leiden_{r}")
@@ -114,7 +233,7 @@ def std_qc_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool
     adata.var_names_make_unique()
 
     print("save raw")
-    adata.layers["raw_counts"] = adata.X.copy()
+    #adata.layers["raw_counts"] = adata.X.copy()
 
     sc.pp.filter_cells(adata, min_genes=200)
     sc.pp.filter_genes(adata, min_cells=3)
