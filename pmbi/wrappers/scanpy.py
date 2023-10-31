@@ -121,7 +121,7 @@ class Paneler(object):
         if filename is None:
             filename = f"{self.output_prefix}_{self.image_num}.{self.format}"
         self.subplots_adjust(hspace=0.5, wspace=0.5)
-        self.fig.savefig(filename)
+        self.fig.savefig(filename, bbox_inches='tight')
         plt.close(self.fig)
         plt.clf()
         gc.collect()
@@ -160,7 +160,8 @@ def read_gct(gctpath: os.PathLike):
         #print(df.iloc[0,:])
         df.columns = df.iloc[0,:]
         df = df.iloc[3:,:]
-        df = df.loc[~df.index.str.startswith("Signature")]
+        #df = df.loc[~df.index.str.startswith("Signature")]
+        df = df.loc[df.index.str.match("[ACGT]+[-][0-9]")]
         #df.index = [re.sub("Signature[.]set[.]overlap[.]percent[.]", "", x) for x in df.index]
         #df.index = [re.sub("[.]", "-", x) for x in df.index]
         #print(df)
