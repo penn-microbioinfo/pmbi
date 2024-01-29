@@ -191,10 +191,10 @@ def calc_umi_per_bc(adata: anndata.AnnData) -> pd.DataFrame:
                  })
     return umi_per_bc
 
-def ax_umi_per_bc(adata: anndata.AnnData, axs_title = "barcode umi counts"):
+def ax_umi_per_bc(adata: anndata.AnnData, axs_title = "barcode umi counts", xmax = 5e4):
     umi_per_bc = calc_umi_per_bc(adata)
     ax = sns.lineplot(umi_per_bc, x="rank", y="umi_count")
-    ax.set(yscale="log", ylim=(0,max(umi_per_bc["umi_count"])*2.5), xlim=(0,5e4))
+    ax.set(yscale="log", ylim=(0,max(umi_per_bc["umi_count"])*2.5), xlim=(0,xmax))
     plt.title(axs_title)
     return ax
 
