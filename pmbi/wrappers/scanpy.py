@@ -139,6 +139,14 @@ def read_h5ad_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace
         adatas[getkey(path)] = sc.read_h5ad(path)
     return adatas
 
+def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: os.PathLike):
+    for key,adata in adatas.items():
+        adata.write_h5ad(os.path.join(outdir, f"{key}_{suffix}.h5ad"))
+
+def adata_add_gct(adata: anndata.AnnData, gct_path: os.PathLike, rsuffix: str):
+    gct = read_gct(gct_path)
+    adata.obs = adata.obs.join(gct, rsuffix = rsuffix)
+
 def adata_to_gct(adata, outpath, layer = None):
     adata = adata.copy()
     if layer is not None:
@@ -153,18 +161,13 @@ def adata_to_gct(adata, outpath, layer = None):
 
 def read_gct(gctpath: os.PathLike):
     with open(gctpath, 'r') as gct:
-        # Skip first two lines of GCT (version and shape)
         for _ in range(0,2):
             gct.readline()
         df = pd.read_csv(gct, sep='\t').transpose()
-        #print(df.iloc[0,:])
         df.columns = df.iloc[0,:]
         df = df.iloc[3:,:]
-        #df = df.loc[~df.index.str.startswith("Signature")]
         df = df.loc[df.index.str.match("[ACGT]+[-][0-9]")]
-        #df.index = [re.sub("Signature[.]set[.]overlap[.]percent[.]", "", x) for x in df.index]
-        #df.index = [re.sub("[.]", "-", x) for x in df.index]
-        #print(df)
+        df = df.astype(np.float64)
         return df
 #read_gct(f"/home/ubuntu/mnt/ankita/combined_adatas_by_donor/ssgsea/ssgsea2.0/{key.replace('-', '_')}_chenetal2020_bulkRNA-scores.gct")
 
@@ -228,18 +231,19 @@ def subset(adata: anndata.AnnData, obs_name: str, bounds: tuple):
     lower,upper = np.quantile(adata.obs[obs_name], bounds)
     return adata[(adata.obs[obs_name] >= lower) & (adata.obs[obs_name] <= upper)]
 
-def std_qc_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
+def std_qc_gex(adata: anndata.AnnData, 
+               sample_suffix: str = "sample",
+               min_cells: int = 3,
+               min_genes: int= 200,
+               plot: bool = True
+               ):
     
-    print("making names unique")
     adata.var_names_make_unique()
 
-    print("save raw")
-    #adata.layers["raw_counts"] = adata.X.copy()
+    sc.pp.filter_cells(adata, min_genes=min_genes)
+    sc.pp.filter_genes(adata, min_cells=min_cells)
 
-    sc.pp.filter_cells(adata, min_genes=200)
-    sc.pp.filter_genes(adata, min_cells=3)
-
-    adata.var["mt"] = adata.var_names.str.startswith("MT-")
+    adata.var["mt"] = adata.var_names.str.startswith("mt-")
     sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True)
 
     adata = subset(adata, "pct_counts_mt", MT_CUT)
@@ -262,15 +266,16 @@ def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     adata = adata[:, adata.var.highly_variable]
 
-    sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])
+    adata.layers["regressed_out"] = sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"], copy=True).X
 
-    sc.pp.scale(adata,  max_value = 10)
+    adata.layers["scale_data"] = sc.pp.scale(adata,  max_value = 10, copy = True).X
 
     sc.tl.pca(adata, svd_solver="arpack")
 
     sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
 
     sc.tl.umap(adata)
+    print("making names unique")
 
     if (plot):
         sc.pl.highly_variable_genes(adata, save = f"_{sample_suffix}")
@@ -309,6 +314,14 @@ def std_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     return adata
 
+def ranked_genes_to_df(adata): 
+    result = adata.uns["rank_genes_groups"]
+    groups = result['names'].dtype.names
+    result.keys()
+    ranked_ds =pd.DataFrame(
+        {group + '_' + key: result[key][group]
+        for group in groups for key in ['names', 'pvals', 'pvals_adj', 'logfoldchanges']})
+    return ranked_ds
 
 if __name__ == "__main__":
     COLOR_GENES = ["CD3D", "CD4", "CD8A", "MS4A1", "CD19", "TRCF", "TCF7"]
