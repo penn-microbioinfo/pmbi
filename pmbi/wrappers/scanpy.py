@@ -1,4 +1,5 @@
 import anndata
+import copy
 import os
 import typing
 import pathlib
@@ -20,12 +21,12 @@ global MT_CUT
 global NFEAT_CUT
 global NRNA_CUT
 
-MT_CUT = (0.0, 0.925)
-NFEAT_CUT = (0.10, 0.95)
-NRNA_CUT = (0.10, 0.95)
+MT_CUT = (0.0, 0.95)
+NFEAT_CUT = (0.025, 0.90)
+NRNA_CUT = (0.025, 0.90)
 
 class Paneler(object):
-    def __init__(self, nrow, ncol, output_prefix, figsize=(3,3), layout="tight", format = "tiff", dpi = 400):
+    def __init__(self, nrow, ncol, output_prefix = None, figsize=(3,3), layout="tight", format = "tiff", dpi = 400):
         Paneler.theme()
         self.nrow = nrow
         self.ncol = ncol
@@ -77,7 +78,10 @@ class Paneler(object):
             if self.nrow*self.ncol == 1:
                 ax = self.axs
             elif self.nrow == 1 or self.ncol == 1:
-                ax = self.axs[coords[1]]
+                if self.nrow == 1:
+                    ax = self.axs[coords[1]]
+                else:
+                    ax = self.axs[coords[0]]
             else:
                 r,c = coords 
                 ax = self.axs[r,c]
@@ -126,12 +130,15 @@ class Paneler(object):
         plt.clf()
         gc.collect()
   
-def read_matrix(matpath, **kwargs):
+def read_matrix(
+        matpath: os.PathLike, **kwargs) -> anndata.AnnData:
     matpath = pathlib.Path(matpath)
     if matpath.suffix == ".h5":
         return sc.read_10x_h5(str(matpath), **kwargs)
     elif matpath.suffix == ".h5ad":
         return anndata.read_h5ad(str(matpath), **kwargs)
+    else:
+        raise ValueError
 
 def read_h5ad_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
     adatas = {}
@@ -146,6 +153,7 @@ def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: os
 def adata_add_gct(adata: anndata.AnnData, gct_path: os.PathLike, rsuffix: str):
     gct = read_gct(gct_path)
     adata.obs = adata.obs.join(gct, rsuffix = rsuffix)
+
 
 def adata_to_gct(adata, outpath, layer = None):
     adata = adata.copy()
@@ -170,6 +178,16 @@ def read_gct(gctpath: os.PathLike):
         df = df.astype(np.float64)
         return df
 #read_gct(f"/home/ubuntu/mnt/ankita/combined_adatas_by_donor/ssgsea/ssgsea2.0/{key.replace('-', '_')}_chenetal2020_bulkRNA-scores.gct")
+
+def obs_add_orig_barcode(adata):
+    p = re.compile("([ATCG]+)([-][0-9])([-][0-9])*")
+    orig_barcodes = []
+    for obsname in adata.obs_names:
+        m = re.match(p,obsname) 
+        if m is not None:
+           orig_barcodes.append(f"{m.groups()[0]}{m.groups()[1]}") 
+    adata.obs["orig_barcode"] = orig_barcodes
+    return adata
 
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
@@ -231,27 +249,68 @@ def subset(adata: anndata.AnnData, obs_name: str, bounds: tuple):
     lower,upper = np.quantile(adata.obs[obs_name], bounds)
     return adata[(adata.obs[obs_name] >= lower) & (adata.obs[obs_name] <= upper)]
 
+def add_var_column_by_index(adata, convert, new_colname):
+    adata = adata.copy()
+    adata.var[new_colname] = [convert[n] for n in adata.var.index]
+    return adata
+
 def std_qc_gex(adata: anndata.AnnData, 
                sample_suffix: str = "sample",
                min_cells: int = 3,
                min_genes: int= 200,
-               plot: bool = True
+               plot: bool = True,
+               plot_save_path = "qc_violins.pdf",
+               mt_prefix = "mt-",
+               manual_cutoffs: dict = None
                ):
-    
-    adata.var_names_make_unique()
 
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
 
-    adata.var["mt"] = adata.var_names.str.startswith("mt-")
+    adata.var["mt"] = adata.var_names.str.startswith(mt_prefix)
     sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True)
 
-    adata = subset(adata, "pct_counts_mt", MT_CUT)
-    adata = subset(adata, "n_genes_by_counts", NFEAT_CUT)
-    adata = subset(adata, "total_counts", NRNA_CUT)
+    if manual_cutoffs is None:
+        cuts = {
+            "pct_counts_mt": [
+                np.quantile(adata.obs["pct_counts_mt"], MT_CUT[0]), 
+                np.quantile(adata.obs["pct_counts_mt"], MT_CUT[1])
+                ],
+            "n_genes_by_counts": [
+                np.quantile(adata.obs["n_genes_by_counts"], NFEAT_CUT[0]), 
+                np.quantile(adata.obs["n_genes_by_counts"], NFEAT_CUT[1])
+                ],
+            "total_counts": [
+                np.quantile(adata.obs["total_counts"], NRNA_CUT[0]), 
+                np.quantile(adata.obs["total_counts"], NRNA_CUT[1])
+                ],
+            }
+    else:
+        cuts = manual_cutoffs
+
+    print(cuts)
+
+    adata.uns["qc_filter_ranges"] = copy.deepcopy(cuts)
 
     if plot:
-        sc.pl.violin(adata, ['n_genes_by_counts', 'total_counts', 'pct_counts_mt'], jitter=0.4, multi_panel=True, save = f"_{sample_suffix}")
+        panel = Paneler(ncol=3, nrow=1, figsize = (9,3))
+        for key in cuts:
+            sc.pl.violin(
+                    adata = adata,
+                    keys = key,
+                    jitter=0.4,
+                    multi_panel=False,
+                    save = False,
+                    ax = panel.next_ax()
+                    )
+            panel.current_ax.axhline(y=cuts[key][0], color="r")
+            panel.current_ax.axhline(y=cuts[key][1], color="r")
+        panel.fig.suptitle(sample_suffix)
+        panel.savefig(plot_save_path)
+
+    adata = adata[(adata.obs["pct_counts_mt"]<=cuts["pct_counts_mt"][1]) & (adata.obs["pct_counts_mt"]>=cuts["pct_counts_mt"][0])]
+    adata = adata[(adata.obs["n_genes_by_counts"]<=cuts["n_genes_by_counts"][1]) & (adata.obs["n_genes_by_counts"]>=cuts["n_genes_by_counts"][0])]
+    adata = adata[(adata.obs["total_counts"]<=cuts["total_counts"][1]) & (adata.obs["total_counts"]>=cuts["total_counts"][0])]
 
     return adata
 
@@ -261,12 +320,11 @@ def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
-    #sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
     sc.pp.highly_variable_genes(adata, n_top_genes=3000)
 
     adata = adata[:, adata.var.highly_variable]
 
-    adata.layers["regressed_out"] = sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"], copy=True).X
+    adata.layers["totalcounts_pctmt_regressed_out"] = sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"], copy=True).X
 
     adata.layers["scale_data"] = sc.pp.scale(adata,  max_value = 10, copy = True).X
 
@@ -284,7 +342,7 @@ def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     return adata
 
-def std_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
+def std_qc_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
 
     sc.pp.filter_genes(adata, min_counts=1)
 
@@ -296,21 +354,32 @@ def std_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
             qc_vars=("control",),
             inplace=True,
             )
-
-    adata = clr_normalize(adata)
-
-    sc.pp.scale(adata,  max_value = 10)
-    sc.pp.pca(adata, n_comps=20)
-    sc.pp.neighbors(adata, n_neighbors=20)
-    sc.tl.leiden(adata, key_added = "adt_leiden")
-
-    sc.tl.umap(adata)
-
     if plot:
+        panel = Paneler(ncol=1, nrow=1, figsize = (3,3))
+        panel.fig = sns.jointplot(
+                x="log1p_total_counts",
+                y="n_antibodies_by_counts",
+                data=adata.obs,
+                kind="hex",
+                norm=mpl.colors.LogNorm()).fig
+        panel.savefig(f"/srv/http/betts/coculture/figures/qc_adt/{sample_suffix}_adt1.png")
+        panel = Paneler(ncol=1, nrow=1, figsize = (3,3))
+        panel.fig = sns.jointplot(
+                x="log1p_total_counts",
+                y="log1p_total_counts_control",
+                data=adata.obs,
+                kind="hex",
+                norm=mpl.colors.LogNorm()).fig
+        panel.savefig(f"/srv/http/betts/coculture/figures/qc_adt/{sample_suffix}_adt2.png")
+        plt.clf()
+        plt.close()
+    return adata
 
-        sns.jointplot(x="log1p_total_counts", y="n_antibodies_by_counts", data=adata.obs, kind="hex", norm=mpl.colors.LogNorm()).fig.savefig(f"adt_qc1_{sample_suffix}.pdf")
-        sns.jointplot(x="log1p_total_counts", y="log1p_total_counts_control", data=adata.obs, kind="hex", norm=mpl.colors.LogNorm()).fig.savefig(f"adt_qc2_{sample_suffix}.pdf")
-        sc.pl.umap(adata, color = "adt_leiden", size=10, save=f"_{sample_suffix}")
+def std_adt_prepocess(adata: anndata.AnnData, sample_suffix: str = "sample"):
+
+    adata = std_qc_adt(adata, sample_suffix = sample_suffix, plot = False)
+    adata = clr_normalize(adata)
+    adata.layers["scale_data"] = sc.pp.scale(adata,  max_value = 10, copy=True).X
 
     return adata
 
@@ -379,3 +448,5 @@ if __name__ == "__main__":
         scipy.io.mmwrite(f"p13_split/{oi}.mm", which_adata.x.transpose())
         which_adata.obs.to_csv(f"p13_split/{oi}.obs", sep = "\t", header = false, index = false)
         which_adata.var.to_csv(f"p13_split/{oi}.var", sep="\t", header = false, index = false)
+# %%
+
