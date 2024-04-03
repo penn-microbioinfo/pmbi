@@ -11,8 +11,8 @@ args = parser.parse_args()
 
 sg = SlurmScriptGenerator(
         jobname = "crmkfastq",
-        cpus_per_task = 8,
-        mem = 30,
+        cpus_per_task = args.threads,
+        mem = args.memory,
         time = 48,
         partition = "m6id"
         )
