@@ -1,4 +1,5 @@
 from collections import namedtuple
+import tomllib
 import itertools
 import os
 import argparse
@@ -6,7 +7,9 @@ import sys
 import re
 import csv
 import logging
-from mbiaws.s3.lib import list_object_keys, object_key_matches
+import pandas as pd
+import pmbi
+from pmbi.s3.lib import object_key_list, split_s3_uri
 ''' for EMTAB sheets
 coldict = {
         9: "protocol",
@@ -15,7 +18,9 @@ coldict = {
         14: "awsdir"
         }
 '''
-DelimRow = namedtuple("DelimRow", ["protocol", "filename", "read_index", "awsdir"])
+#DelimRow = namedtuple("DelimRow", ["protocol", "filename", "read_index", "awsdir"])
+
+CRCONFIG = tomllib.load(open(os.path.join(os.path.dirname(pmbi.__file__), "cellranger", "config.toml"), "rb"))
 
 multiome_sample_p = re.compile("([0-9]+)[_]([a-zA-Z-]+)[_]([0-9]+[a-z]*)[_]")
 super_sample_p = re.compile("^([0-9]+)[_]([0-9]+[a-z]*)")
@@ -160,32 +165,43 @@ class CellrangerMultiomeExperiment(object):
         return exp
 
 class CellrangerCommand(object):
-    def __init__(self, protocol, protocol_to_ref = None, **kwargs):
-        if protocol_to_ref is None:
-            self.protocol_to_ref = {
-                "scRNA-seq": "/cellranger-ref/refdata-gex-mm10-2020-A",
-                "scVDJ-seq": "/cellranger-ref/refdata-cellranger-vdj-GRCh38-alts-ensembl-7.1.0",
-                "scADT-seq": "/cellranger-ref/TotalSeq_C_Human_Uuniversal_Cocktail_399905_Antibody_reference_UMI_counting.csv" 
-                }
-        else:
-            self.protocol_to_ref = protocol_to_ref
+    def __init__(self, protocol, reference = None, **kwargs):
 
+        self.command = "cellranger"
+        self.subcommand = None
         self.protocol = protocol
         self.command_line_args = dict(kwargs)
+        self.sample = self.command_line_args["sample"]
         self.archive_name = None
+        self.important_outs = []
         self.path_to_outs = None
+
+        if reference is None:
+            self.command_line_args["reference"] = CRCONFIG["references"][protocol]
+        else: 
+            self.command_line_args["reference"] = reference
 
     def compress_outs(self):
         if self.archive_name is None or self.path_to_outs is None:
             raise ValueError("Cannot compress outs whose locations are not known.")
-        return f"tar cvf {self.archive_name} {self.path_to_outs} && \\"
+        cmds = [f"tar cvfz {self.archive_name} {self.path_to_outs} && \\"]
+        if len(self.important_outs) > 0:
+            cmds.append("mkdir important_outs && \\")
+            for imp in self.important_outs:
+                cmds.append(f"mv {imp} important_outs/. && \\")
+            cmds.append(f"tar cvzf {self.archive_name.replace('tar.gz', 'importantOuts.tar.gz')} important_outs/ && \\")
+        return '\n'.join(cmds)
 
     def get_reference_path(self):
         return self.protocol_to_ref[self.protocol]
 
     def command_line_args_repr(self, exclude: list):
         cli_args = [f"--{k.replace('_', '-')} {v}" for k,v in self.command_line_args.items() if k not in exclude]
-        return " ".join(["cellranger", self.subcommand] + cli_args)
+        if self.subcommand is not None:
+            return " ".join([self.command, self.subcommand] + cli_args)
+        else:
+            return " ".join([self.command, self.subcommand] + cli_args)
+
 
     def __str__(self):
         return self.command_line_args_repr(exclude = []) 
@@ -199,11 +215,12 @@ class CellrangerCountRNA(CellrangerCommand):
         self.archive_name = f"{self.command_line_args['sample']}_filtered_feature_bc_matrix.tar"
         self.path_to_outs = f"{self.command_line_args['sample']}/outs/filtered_feature_bc_matrix"
     
-    def should_include_introns(self):
-        if self.protocol == "snRNA-seq":
-            return True
-        else:
-            return False
+    # Out of date because cellranger now ALWAYS includes introns by default
+    #def should_include_introns(self):
+    #    if self.protocol == "snRNA-seq":
+    #        return True
+    #    else:
+    #        return False
 
 class CellrangerCountADT(CellrangerCommand):
     def __init__(self, **kwargs):
@@ -230,6 +247,30 @@ class CellrangerVDJ(CellrangerCommand):
         self.command_line_args["reference"] = self.get_reference_path()
         self.archive_name = f"{self.command_line_args['sample']}_vdj_outs.tar"
         self.path_to_outs = f"{self.command_line_args['sample']}/outs"
+
+class CellrangerAtac(CellrangerCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.command = "cellranger-atac"
+        self.subcommand = "count"
+        self.archive_name = f"{self.sample}.{self.protocol}.tar.gz"
+        self.path_to_outs = f"{self.sample}/outs"
+        self.important_outs = [
+                f"{self.path_to_outs}/outs/filtered_peak_bc_matrix/",
+                f"{self.path_to_outs}/outs/filtered_peak_bc_matrix.h5",
+                f"{self.path_to_outs}/outs/filtered_tf_bc_matrix/",
+                f"{self.path_to_outs}/outs/filtered_tf_bc_matrix.h5",
+                f"{self.path_to_outs}/outs/raw_peak_bc_matrix/",
+                f"{self.path_to_outs}/outs/raw_peak_bc_matrix.h5",
+                f"{self.path_to_outs}/outs/raw_tf_bc_matrix/",
+                f"{self.path_to_outs}/outs/raw_tf_bc_matrix.h5",
+                f"{self.path_to_outs}/outs/web_summary.html",
+                f"{self.path_to_outs}/outs/peak_annotation.tsv",
+                f"{self.path_to_outs}/outs/peak_motif_mapping.bed",
+                f"{self.path_to_outs}/outs/peaks.bed",
+                f"{self.path_to_outs}/outs/analysis/umap",
+                f"{self.path_to_outs}/outs/cloupe.cloupe"
+                ]
 
 class CellrangerMulti(object):
     def __init__(self, fastqs, config, experiment, output_key_prefix):
@@ -385,14 +426,15 @@ class CellrangerMultiConfig(object):
         with open("fname", 'w') as config_out:
             config_out.write(self.__str__())
  
-def cellranger_table_column_dict(protocol: int = 0, filename: int = 1, read_index: int = 2, awsdir: int = 3):
-    coldict = {
-            protocol: "protocol",
-            filename: "filename",
-            read_index: "read_index",
-            awsdir: "awsdir"
-            }
-    return coldict
+# This is stupid - just use pandas
+#def cellranger_table_column_dict(protocol: int = 0, filename: int = 1, read_index: int = 2, awsdir: int = 3):
+#    coldict = {
+#            protocol: "protocol",
+#            filename: "filename",
+#            read_index: "read_index",
+#            awsdir: "awsdir"
+#            }
+#    return coldict
 
 def cellranger_cmd(protocol, protocol_to_cr_command_generator):
     return protocol_to_cr_command_generator[protocol]
@@ -420,41 +462,47 @@ def cellranger_vdj_cmd(fastq_dir, ref, ident, sample, localcores = 1, localmem =
             --localmem {localmem}"
 
 
-def cellranger_commands(table, coldict = cellranger_table_column_dict(), key_prefix = "cellranger_matrices"):
+def cellranger_commands(table, s3_output_prefix = "cellranger_matrices"):
     cmds = {}
-    with open(table) as tsv:
-        for line in tsv:
-            this_sample = []
-            row = newDelimRow(line.strip(), coldict)
-
-            # Only generate a command once for each read pair
-            if row.read_index in ["R1", "read1"]:
-                sampleid = re.sub("_S[0-9]+[_]L[0-9]+[_][IR][0-9]+[_][0-9]+[.]fastq[.]gz", "", row.filename)
-                this_sample.append(f"python /shared-ebs/microbioinfo-aws/scripts/s3-download-multi.py --bucket microbioinfo-storage --prefix {os.path.join(row.awsdir, sampleid)} --chunksize 1.024e8 --pattern '[_]R[0-9]+[_][0-9]+[.]fastq[.]gz$' && \\")
-                this_cellranger_cmd = cellranger_cmd(row.protocol, protocol_to_cr_command_generator)(
-                    protocol = row.protocol,
+    crtable = pd.read_csv(table, sep = "\t")
+    for row in crtable.itertuples():
+        this_sample = []
+        if row.read_number in ["R1", "read1"]:
+            sampleid = re.sub("_S[0-9]+[_]L[0-9]+[_][IR][0-9]+[_][0-9]+[.]fastq[.]gz", "", row.read_filename)
+            bucket,r1prefix = split_s3_uri(uri = row.read_s3_uri)
+            read_prefix = os.path.join(os.path.dirname(r1prefix), sampleid)
+            this_sample.append(f"python /shared-ebs/microbioinfo-aws/s3/s3-download-multi.py --bucket {bucket} --prefix {read_prefix} --chunksize 1.024e8 --pattern '[_]R[0-9]+[_][0-9]+[.]fastq[.]gz$' && \\")
+            this_cellranger_cmd = cellranger_cmd(row.modality, modality_to_class)(
+                    protocol = row.modality,
                     fastqs = "fastqs", 
                     id = sampleid, 
                     sample= sampleid, 
                     localcores = 8, 
                     localmem=58)
-                this_sample.append(this_cellranger_cmd.__str__() + " && \\")
-                
-                this_sample.append(this_cellranger_cmd.compress_outs())
-                this_sample.append(f"python /shared-ebs/microbioinfo-aws/scripts/s3-multipart-upload.py --bucket microbioinfo-storage --key {key_prefix}/{this_cellranger_cmd.archive_name} --partsize 100000000 --nproc 8 --largefile {this_cellranger_cmd.archive_name}")
-                if sampleid in cmds:
-                    assert this_sample == cmds[sampleid]
-                else:
-                    cmds[sampleid] = this_sample
+            this_sample.append(this_cellranger_cmd.__str__() + " && \\")
+
+            this_sample.append(this_cellranger_cmd.compress_outs())
+            this_sample.append(f"python /shared-ebs/microbioinfo-aws/s3//shared-ebs/microbioinfo-aws/s3/s3-download-multi.pypy s3-multipart-upload.py --bucket {bucket} --key {s3_output_prefix}/{this_cellranger_cmd.archive_name} --partsize 100000000 --nproc 8 --largefile {this_cellranger_cmd.archive_name} && \\")
+            this_sample.append(f'python /shared-ebs/microbioinfo-aws/scripts/s3-multipart-upload.py --bucket {bucket} --key {s3_output_prefix}/{this_cellranger_cmd.archive_name.replace('.tar.gz', '.importantOuts.tar.gz')} --partsize 100000000 --nproc 8 --largefile {this_cellranger_cmd.archive_name.replace('.tar.gz', '.importantOuts.tar.gz')}')
+            if sampleid in cmds:
+                assert this_sample == cmds[sampleid]
+            else:
+                cmds[sampleid] = this_sample
 
     return cmds
 
-protocol_to_cr_command_generator = {
+modality_to_class = {
+        "RNA": CellrangerCountRNA,
+        "VDJ": CellrangerVDJ,
+        "ADT": CellrangerCountADT,
+        "ATAC": CellrangerAtac,
+        }
+
+emtab_protocol_to_cr_command_generator = {
         "scRNA-seq": CellrangerCountRNA,
         "scVDJ-seq": CellrangerVDJ,
         "scADT-seq": CellrangerCountADT
         }
-
 def newDelimRow(row, coldict, delim = '\t'):
     spl = row.split(delim)
     cols = []

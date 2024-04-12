@@ -30,11 +30,9 @@ args = parser.parse_args()
 
 
 setup_cmds = ["source /shared-ebs/source_me.bash",
-              "REPO=/shared-ebs/microbioinfo-aws/scripts/",
               "unset AWS_PROFILE; unset AWS_SHARED_CREDENTIALS_FILE", # Make sure boto3 uses IAM profile creds
-              #"export PATH=$PATH:/shared-ebs/bin", <- done soure_me.bash
-              "mkdir -p /local-ebs/cellranger/fastqs",
-              "cd /local-ebs/cellranger/fastqs"]
+              "mkdir -p /scratch/cellranger/fastqs",
+              "cd /scratch/cellranger/fastqs"]
 if args.multiome:
     with open(args.table, 'r') as table:
         table_rows = [cc.newDelimRow(line.strip(), cc.cellranger_table_column_dict(), delim = '\t') for line in table.readlines()] 
@@ -72,12 +70,12 @@ if args.multiome:
             sg.add_command(exp.print_s3_upload_cmd())
         sg.write()
 else:
-    chunks = np.array_split(list(cc.cellranger_commands(args.table, key_prefix = args.s3_output_prefix).values()), args.splits)
+    chunks = np.array_split(list(cc.cellranger_commands(args.table, s3_output_prefix = args.s3_output_prefix).values()), args.splits)
 
     for i,cmd_chunk in enumerate(chunks):
         if is_empty(cmd_chunk):
             raise ValueError(f"Empty command chunk passed at index {i}. Check input table or number of splits requested.")
-        sg = scriptgen.SlurmScriptGenerator(
+        sg = SlurmScriptGenerator(
                 jobname=f"crcount_{i}",
                 nodes=1,
                 tasks_per_node=1,
@@ -88,10 +86,12 @@ else:
                 )
         for sc in setup_cmds:
             sg.add_command(sc)
+
         for sample in cmd_chunk:
             sg.add_command(sample[0])
-            sg.add_command("cd /local-ebs/cellranger/ && \\")
+            sg.add_command("cd /scratch/cellranger/ && \\")
             sg.add_command(sample[1])
             sg.add_command(sample[2])
             sg.add_command(sample[3])
+            sg.add_command(sample[4])
         sg.write()
