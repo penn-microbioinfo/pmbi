@@ -164,10 +164,8 @@ class S3MultiPartUpload(object):
             print(local_fnames[idx])
             print(local, remote_etags[idx])
             if local != remote_etags[idx]:
-                pass
-                #return False 
-        return False
-        #return True
+                return False
+        return True
 
     def complete_upload(self):
         
@@ -198,7 +196,7 @@ class S3MultiPartUpload(object):
             raise ValueError
         try:
             boto3.client("s3").abort_multipart_upload(Bucket = self.bucket, Key = self.key, UploadId = self.upload_id)
-            logger.critical("Upload aborted successfully.")
+            logging.critical("Upload aborted successfully.")
         except botocore.exceptions.ClientError:
             logging.critical(f"Unable to abort MultipartUpload. It will have to be done manually:\n{'-'*25}\naws s3api abort-multipart-upload --bucket {self.bucket} --key {self.key} --upload-id {self.upload_id}")
             raise
