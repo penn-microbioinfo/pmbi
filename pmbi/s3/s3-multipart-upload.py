@@ -11,6 +11,7 @@ import re
 import sys
 import hashlib
 import base64
+from pmbi.s3.lib import split_s3_uri
 from pathos.multiprocessing import ProcessPool
 from pathos.helpers import cpu_count
 
@@ -84,6 +85,7 @@ class S3MultiPartUpload(object):
 
         logging.info(f"Started uploading {self.nparts} parts.")
         start = time.time()
+        print(self._part_numbers(), self._part_fnames())
         with ProcessPool(nodes=self.nproc) as p:
             p.map(self._upload_part, self._part_numbers(), self._part_fnames(), S3MultiPartUpload._encode_b64([p.digest for p in self.parts]))
    
@@ -121,6 +123,8 @@ class S3MultiPartUpload(object):
             x_hexdigest = x_hash.hexdigest()
             return (x_digest, x_hexdigest)
 
+        part_fnames = [p.fname for p in parts]
+
         logging.info(f"Generating md5 digests for {len(part_fnames)} file parts.")
         streams = [open(x, 'rb') for x in [p.fname for p in parts]]
         with ProcessPool(local_nproc) as p:
@@ -157,9 +161,13 @@ class S3MultiPartUpload(object):
         local_etags = [x[1] for x in local_parts.values()]
         for idx,local in enumerate(local_etags):
             logging.info(f"{local_fnames[idx]}\t{local}\t{remote_etags[idx]}")
+            print(local_fnames[idx])
+            print(local, remote_etags[idx])
             if local != remote_etags[idx]:
-                return False 
-        return True
+                pass
+                #return False 
+        return False
+        #return True
 
     def complete_upload(self):
         
@@ -246,37 +254,31 @@ def check_final_etag(local_etag, remote_etag):
         logging.critical(f"Local ETag does not equal remote ETag: {local_etag} != {remote_etag}")
         sys.exit(1)
 
-if __name__ == "__main__":
+def main(uri: str,
+         largefile: str,
+         partsize: int = 4950000000,
+         nproc: int = cpu_count()
+         ):
 
-    # Should probably just call the logger myself instead of using basicConfig
-    # to avoid this annoying logic
-    if float(".".join(sys.version.split(" ")[0].split(".")[0:2])) >= 3.9: 
-        logging.basicConfig(encoding='utf-8', level=logging.INFO)
-    else:
-        logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-b", "--bucket", action = "store", help = "")
-    parser.add_argument("-k", "--key", action = "store", help = "")
-    parser.add_argument("-s", "--partsize", action = "store", help = "", default = 4950000000)
-    parser.add_argument("-f", "--largefile", action = "store", help = "")
-    parser.add_argument("-p", "--nproc", action = "store", default = cpu_count(), type = int, help = "")
-    args = parser.parse_args()
+    bucket, key = split_s3_uri(uri)
 
-    logging.info(f"Uploading with up to {args.nproc} processes (default = detected {cpu_count()} CPUs))")
+    logging.basicConfig(level=logging.INFO)
 
-    logging.info(f"Generating MD5 for {args.largefile} in background.")
-    logging.info(f"Splitting {args.largefile} ({float(os.stat(args.largefile).st_size)/float(1e9)} Gb) into parts. ")
+    logging.info(f"Uploading with up to {nproc} processes (default = detected {cpu_count()} CPUs))")
+
+    logging.info(f"Generating MD5 for {largefile} in background.")
+    logging.info(f"Splitting {largefile} ({float(os.stat(largefile).st_size)/float(1e9)} Gb) into parts.")
    
-    largefile_path = os.path.realpath(args.largefile)
+    largefile_path = os.path.realpath(largefile)
     unique_dirname = str(uuid.uuid4())
     logging.info(f"Creating temporary directory to populate with file parts: {unique_dirname}")
     os.mkdir(unique_dirname)
     os.chdir(unique_dirname)
 
     md5p = subprocess.Popen(["md5sum", largefile_path], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-    part_fnames = make_file_parts(largefile_path, part_size = args.partsize)
+    part_fnames = make_file_parts(largefile_path, part_size = partsize)
     md5_bytes,err = md5p.communicate()
-    md5_key = f"{args.key}.md5"
+    md5_key = f"{key}.md5"
     md5_basename = f"{os.path.basename(md5_key)}"
     if md5p.returncode != 0:
         raise OSError(err)
@@ -285,16 +287,25 @@ if __name__ == "__main__":
             md5.write(md5_bytes)
 
     # Begin interactions with S3
-    mpu = S3MultiPartUpload(args.bucket, args.key, nproc = args.nproc)
+    mpu = S3MultiPartUpload(bucket, key, nproc = nproc)
     mpu.upload_parts(part_fnames)
     mpu.upload_md5(md5_key, md5_bytes)
     mpu.complete_upload()
 
     logging.shutdown()
 
-    #print("Sleeping")
-    #time.sleep(20)
-    
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-u", "--uri", action = "store", required = True, type = str, help = "S3 URI to upload large file as.")
+    parser.add_argument("-f", "--largefile", action = "store", type = str, help = "Path to large file to upload.")
+    parser.add_argument("-s", "--partsize", action = "store", required = True, type = int, help = "", default = 4950000000)
+    parser.add_argument("-p", "--nproc", action = "store", default = cpu_count(), type = int, help = "")
+    args = parser.parse_args()
+
+    main(**vars(args))
+ 
     # On AWS, a .nfsXXXX file is created that doesn't get removed until
     # after script closes, so can't do anything about it here - yet...
     # Just call script from a different directory and then you can delete 
