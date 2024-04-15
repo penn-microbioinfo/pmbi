@@ -25,7 +25,7 @@ class Part(object):
         self.number = partnumber
         self.fname = part_fname
         self.digest = part_digest
-        self.digest = part_hexdigest
+        self.hexdigest = part_hexdigest
     def _etag(self):
         if self.digest is not None:
             return md5hash(io.BytesIO(self.digest)).hexdigest()
@@ -52,6 +52,8 @@ class S3MultiPartUpload(object):
     def _create_upload(self):
         return boto3.client("s3").create_multipart_upload(Bucket = self.bucket, Key = self.key)["UploadId"]
     
+    # Upload a single part
+    # Have AWS check the md5 hash of each part by passing it with ContentMD5
     def _upload_part(self, partnumber, partpath, parthash):
         start = time.time()
         with open(partpath, 'rb') as fopen:
@@ -131,10 +133,8 @@ class S3MultiPartUpload(object):
             digests = p.map(lambda x: both_digests(x), streams)
         _close_streams = [x.close() for x in streams]
         for i,p in enumerate(parts):
-            p.digest = digests[i][0]
-            p.hexdigest = digests[i][1]
+            p.digest, p.hexdigest = digests[i]
         return [d[0] for d in digests]
-        
         #return [md5hash(open(x, 'rb')).digest() for x in part_fnames]
 
     def list_parts(self):
@@ -179,9 +179,11 @@ class S3MultiPartUpload(object):
         multiparts = {"Parts": [{"PartNumber": p["PartNumber"], "ETag": p["ETag"]} for p in self.list_parts()]}
 
         try:
-            r = boto3.client("s3").complete_multipart_upload(Bucket = self.bucket, Key = self.key, UploadId = self.upload_id, MultipartUpload=multiparts) 
+            r = boto3.client("s3").complete_multipart_upload(Bucket = self.bucket, Key = self.key, UploadId = self.upload_id, MultipartUpload=multiparts)
         except:
             self._abort()
+            raise
+
         remote_etag = r["ETag"].replace('"', '') 
         if not self._matches_etag(remote_etag):
             logging.critical(f"Local and remote ETags do not match: {self.etag}")
@@ -246,6 +248,14 @@ def md5hash(f, block_size = 2**20):
         md5.update(block)
     return md5
 
+def sha256hash(f, block_size = 2**20):
+    sha = hashlib.new("sha256")
+    while True:
+        block = f.read(block_size)
+        if not block:
+            break
+        sha.update(block)
+    return sha
 
 def check_final_etag(local_etag, remote_etag):
     if local_etag != remote_etag:
