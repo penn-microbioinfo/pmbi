@@ -186,10 +186,10 @@ class CellrangerCommand(object):
             raise ValueError("Cannot compress outs whose locations are not known.")
         cmds = [f"tar cvfz {self.archive_name} {self.path_to_outs} && \\"]
         if len(self.important_outs) > 0:
-            cmds.append("mkdir important_outs && \\")
+            cmds.append("mkdir important_outs")
             for imp in self.important_outs:
-                cmds.append(f"mv {imp} important_outs/. && \\")
-            cmds.append(f"tar cvzf {self.archive_name.replace('tar.gz', 'importantOuts.tar.gz')} important_outs/ && \\")
+                cmds.append(f"mv {imp} important_outs/.")
+            cmds.append(f"tar cvzf {self.archive_name.replace('tar.gz', 'importantOuts.tar.gz')} important_outs/")
         return '\n'.join(cmds)
 
     def get_reference_path(self):
@@ -256,20 +256,18 @@ class CellrangerAtac(CellrangerCommand):
         self.archive_name = f"{self.sample}.{self.protocol}.tar.gz"
         self.path_to_outs = f"{self.sample}/outs"
         self.important_outs = [
-                f"{self.path_to_outs}/outs/filtered_peak_bc_matrix/",
-                f"{self.path_to_outs}/outs/filtered_peak_bc_matrix.h5",
-                f"{self.path_to_outs}/outs/filtered_tf_bc_matrix/",
-                f"{self.path_to_outs}/outs/filtered_tf_bc_matrix.h5",
-                f"{self.path_to_outs}/outs/raw_peak_bc_matrix/",
-                f"{self.path_to_outs}/outs/raw_peak_bc_matrix.h5",
-                f"{self.path_to_outs}/outs/raw_tf_bc_matrix/",
-                f"{self.path_to_outs}/outs/raw_tf_bc_matrix.h5",
-                f"{self.path_to_outs}/outs/web_summary.html",
-                f"{self.path_to_outs}/outs/peak_annotation.tsv",
-                f"{self.path_to_outs}/outs/peak_motif_mapping.bed",
-                f"{self.path_to_outs}/outs/peaks.bed",
-                f"{self.path_to_outs}/outs/analysis/umap",
-                f"{self.path_to_outs}/outs/cloupe.cloupe"
+                f"{self.path_to_outs}/filtered_peak_bc_matrix/",
+                f"{self.path_to_outs}/filtered_peak_bc_matrix.h5",
+                f"{self.path_to_outs}/filtered_tf_bc_matrix/",
+                f"{self.path_to_outs}/filtered_tf_bc_matrix.h5",
+                f"{self.path_to_outs}/raw_peak_bc_matrix/",
+                f"{self.path_to_outs}/raw_peak_bc_matrix.h5",
+                f"{self.path_to_outs}/web_summary.html",
+                f"{self.path_to_outs}/peak_annotation.tsv",
+                f"{self.path_to_outs}/peak_motif_mapping.bed",
+                f"{self.path_to_outs}/peaks.bed",
+                f"{self.path_to_outs}/analysis/umap",
+                f"{self.path_to_outs}/cloupe.cloupe"
                 ]
 
 class CellrangerMulti(object):
@@ -316,7 +314,7 @@ class CellrangerMulti(object):
         self.path_to_outs = "outs"
         return ret
     def print_s3_upload_cmd(self):
-        out_up = f"python /shared-ebs/microbioinfo-aws/scripts/s3-multipart-upload.py --bucket microbioinfo-storage --key {os.path.join(self.output_key_prefix, self.archive_name)} --partsize 1000000000 --nproc 8 --largefile {self.archive_name}"
+        out_up = f"python /shared-ebs/pmbi/pmbi/s3/s3-multipart-upload.py --bucket microbioinfo-storage --key {os.path.join(self.output_key_prefix, self.archive_name)} --partsize 1000000000 --nproc 8 --largefile {self.archive_name}"
         important_out_up = f"python /shared-ebs/microbioinfo-aws/scripts/s3-multipart-upload.py --bucket microbioinfo-storage --key {os.path.join(self.output_key_prefix, self.important_archive_name)} --partsize 1000000000 --nproc 8 --largefile {self.important_archive_name}"
         return '\n'.join([out_up, important_out_up])
 
@@ -471,7 +469,7 @@ def cellranger_commands(table, s3_output_prefix = "cellranger_matrices"):
             sampleid = re.sub("_S[0-9]+[_]L[0-9]+[_][IR][0-9]+[_][0-9]+[.]fastq[.]gz", "", row.read_filename)
             bucket,r1prefix = split_s3_uri(uri = row.read_s3_uri)
             read_prefix = os.path.join(os.path.dirname(r1prefix), sampleid)
-            this_sample.append(f"python /shared-ebs/microbioinfo-aws/s3/s3-download-multi.py --bucket {bucket} --prefix {read_prefix} --chunksize 1.024e8 --pattern '[_]R[0-9]+[_][0-9]+[.]fastq[.]gz$' && \\")
+            this_sample.append(f"python /shared-ebs/pmbi/pmbi/s3/s3-download-multi.py --bucket {bucket} --prefix {read_prefix} --chunksize 1.024e8 --pattern '[_]R[0-9]+[_][0-9]+[.]fastq[.]gz$' && \\")
             this_cellranger_cmd = cellranger_cmd(row.modality, modality_to_class)(
                     protocol = row.modality,
                     fastqs = "fastqs", 
@@ -482,8 +480,9 @@ def cellranger_commands(table, s3_output_prefix = "cellranger_matrices"):
             this_sample.append(this_cellranger_cmd.__str__() + " && \\")
 
             this_sample.append(this_cellranger_cmd.compress_outs())
-            this_sample.append(f"python /shared-ebs/microbioinfo-aws/s3//shared-ebs/microbioinfo-aws/s3/s3-download-multi.pypy s3-multipart-upload.py --bucket {bucket} --key {s3_output_prefix}/{this_cellranger_cmd.archive_name} --partsize 100000000 --nproc 8 --largefile {this_cellranger_cmd.archive_name} && \\")
-            this_sample.append(f'python /shared-ebs/microbioinfo-aws/scripts/s3-multipart-upload.py --bucket {bucket} --key {s3_output_prefix}/{this_cellranger_cmd.archive_name.replace('.tar.gz', '.importantOuts.tar.gz')} --partsize 100000000 --nproc 8 --largefile {this_cellranger_cmd.archive_name.replace('.tar.gz', '.importantOuts.tar.gz')}')
+            output_uri = f"s3://{bucket}/{s3_output_prefix}/{this_cellranger_cmd.archive_name}"
+            this_sample.append(f"python /shared-ebs/pmbi/pmbi/s3/s3-multipart-upload.py --uri {output_uri} --partsize 100000000 --nproc 8 --skip_verify_etags --largefile {this_cellranger_cmd.archive_name}")
+            this_sample.append(f'python /shared-ebs/pmbi/pmbi/s3/s3-multipart-upload.py --uri {output_uri.replace(".tar.gz", ".importantOuts.tar.gz")} --partsize 100000000 --nproc 8 --skip_verify_etags --largefile {this_cellranger_cmd.archive_name.replace('.tar.gz', '.importantOuts.tar.gz')}')
             if sampleid in cmds:
                 assert this_sample == cmds[sampleid]
             else:
