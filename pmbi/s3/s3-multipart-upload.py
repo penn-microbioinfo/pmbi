@@ -1,4 +1,5 @@
 import boto3
+import pdb
 import time
 import uuid
 import io
@@ -34,18 +35,17 @@ class Part(object):
             raise ValueError("No part digest to make etag out of.")
 
 class S3MultiPartUpload(object):
-    def __init__(self, bucket, key, abort_on_failure_to_complete = False, nproc = 1):
+    def __init__(self, bucket, key, abort_on_failure_to_complete = False, skip_verify_etags = False, nproc = cpu_count()):
         self.client = None 
         self.bucket = bucket
         self.key = key
         self.upload_id = None
-        #self.part_fnames = None
         self.parts = None
         self.nparts = None
-        #self.part_digests = None
         self.etag = None
         self.abort_on_failure_to_complete = abort_on_failure_to_complete
         self.nproc = nproc
+        self.skip_verify_etags = skip_verify_etags # Checking remote ETag with what S3 remote reports if certain encryptions are enabled
 
         self.upload_id = self._create_upload()
 
@@ -145,7 +145,7 @@ class S3MultiPartUpload(object):
             raise
         return r["Parts"]
 
-    def _uploaded_parts_in_correct_order(self):
+    def _verify_part_etags(self):
         # Sort remote parts by part number
         remote_parts = {p["PartNumber"]: p["ETag"].replace('"', '') for p in self.list_parts()}
         remote_parts = {i: remote_parts[i] for i in sorted(remote_parts.keys())}
@@ -161,16 +161,15 @@ class S3MultiPartUpload(object):
         local_etags = [x[1] for x in local_parts.values()]
         for idx,local in enumerate(local_etags):
             logging.info(f"{local_fnames[idx]}\t{local}\t{remote_etags[idx]}")
-            print(local_fnames[idx])
-            print(local, remote_etags[idx])
             if local != remote_etags[idx]:
-                return False
+                return False 
         return True
 
     def complete_upload(self):
         
-        if not self._uploaded_parts_in_correct_order():
-            raise ValueError("Local and remote parts mismatched.")
+        if not self.skip_verify_etags:
+            if not self._verify_part_etags():
+                raise ValueError("Local and remote parts mismatched.")
 
         self._generate_final_etag()
 
@@ -179,18 +178,14 @@ class S3MultiPartUpload(object):
         multiparts = {"Parts": [{"PartNumber": p["PartNumber"], "ETag": p["ETag"]} for p in self.list_parts()]}
 
         try:
-            r = boto3.client("s3").complete_multipart_upload(Bucket = self.bucket, Key = self.key, UploadId = self.upload_id, MultipartUpload=multiparts)
+            r = boto3.client("s3").complete_multipart_upload(Bucket = self.bucket, Key = self.key, UploadId = self.upload_id, MultipartUpload=multiparts) 
+            if not self.skip_verify_etags:
+                remote_etag = r["ETag"].replace('"', '') 
+                if not self._matches_etag(remote_etag):
+                    logging.critical(f"Local and remote ETags do not match: {self.etag}")
+                    sys.exit(1)
         except:
             self._abort()
-            raise
-
-        remote_etag = r["ETag"].replace('"', '') 
-        if not self._matches_etag(remote_etag):
-            logging.critical(f"Local and remote ETags do not match: {self.etag}")
-            if self.abort_on_failure_to_complete:
-                self._abort()
-            else:
-                logging.critical(f"Unable to complete MultipartUpload. It will have to be done manually:\n{'-'*25}\naws s3api complete-multipart-upload --bucket {self.bucket} --key {self.key} --upload-id {self.upload_id} --multipart-upload {multiparts}")
 
     def _abort(self):
         if self.upload_id is None:
@@ -265,12 +260,14 @@ def check_final_etag(local_etag, remote_etag):
 def main(uri: str,
          largefile: str,
          partsize: int = 4950000000,
-         nproc: int = cpu_count()
+         nproc: int = cpu_count(),
+         skip_verify_etags = False
          ):
 
     bucket, key = split_s3_uri(uri)
 
     logging.basicConfig(level=logging.INFO)
+    logging.info(f"Attempting to upload to s3://{bucket} with key: {key}")
 
     logging.info(f"Uploading with up to {nproc} processes (default = detected {cpu_count()} CPUs))")
 
@@ -295,7 +292,7 @@ def main(uri: str,
             md5.write(md5_bytes)
 
     # Begin interactions with S3
-    mpu = S3MultiPartUpload(bucket, key, nproc = nproc)
+    mpu = S3MultiPartUpload(bucket, key, nproc = nproc, skip_verify_etags = skip_verify_etags)
     mpu.upload_parts(part_fnames)
     mpu.upload_md5(md5_key, md5_bytes)
     mpu.complete_upload()
@@ -309,6 +306,7 @@ if __name__ == "__main__":
     parser.add_argument("-u", "--uri", action = "store", required = True, type = str, help = "S3 URI to upload large file as.")
     parser.add_argument("-f", "--largefile", action = "store", type = str, help = "Path to large file to upload.")
     parser.add_argument("-s", "--partsize", action = "store", required = True, type = int, help = "", default = 4950000000)
+    parser.add_argument("-v", "--skip_verify_etags", action = "store_true", help = "Pass to skip verification of part and final ETags with remote. This vefication can erroneously fail if certain bucket encryptions are enabled")
     parser.add_argument("-p", "--nproc", action = "store", default = cpu_count(), type = int, help = "")
     args = parser.parse_args()
 

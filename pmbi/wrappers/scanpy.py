@@ -10,7 +10,6 @@ import scanpy as sc
 import scirpy as ir
 import numpy as np
 import seaborn as sns
-import muon as mu
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.axis
@@ -193,6 +192,12 @@ def obs_add_orig_barcode(adata):
            orig_barcodes.append(f"{m.groups()[0]}{m.groups()[1]}") 
     adata.obs["orig_barcode"] = orig_barcodes
     return adata
+
+def obs_names_unique(adata: anndata.AnnData) -> bool:
+    return len(adata.obs_names) == len(adata.obs_names.unique())
+
+def var_names_unique(adata: anndata.AnnData) -> bool:
+    return len(adata.var_names) == len(adata.var_names.unique())
 
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
