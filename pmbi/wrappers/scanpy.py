@@ -7,7 +7,6 @@ import scanpy as sc
 import scirpy as ir
 import numpy as np
 import seaborn as sns
-import muon as mu
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
@@ -56,6 +55,12 @@ def read_matrix(matpath, **kwargs):
         return sc.read_10x_h5(str(matpath), **kwargs)
     elif matpath.suffix == ".h5ad":
         return anndata.read_h5ad(str(matpath), **kwargs)
+
+def obs_names_unique(adata: anndata.AnnData) -> bool:
+    return len(adata.obs_names) == len(adata.obs_names.unique())
+
+def var_names_unique(adata: anndata.AnnData) -> bool:
+    return len(adata.var_names) == len(adata.var_names.unique())
 
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
