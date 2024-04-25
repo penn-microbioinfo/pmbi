@@ -1,3 +1,11 @@
+<<<<<<< HEAD
+=======
+import sys
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+import seaborn.objects as so
+>>>>>>> 494059bb728c71e42762d2b4779a39298e6997b6
 import anndata
 import logging
 import pmbi.wrappers.scanpy as scp
@@ -8,11 +16,15 @@ import numpy as np
 import mudata
 import argparse
 import torch
+<<<<<<< HEAD
 import scvi
 import pathlib
 import pandas as pd
 import os
 import re
+=======
+import copy
+>>>>>>> 494059bb728c71e42762d2b4779a39298e6997b6
 
 class Modeler(object):
     def __init__(self, batch_key = "orig_ident"):
@@ -111,8 +123,8 @@ class ScviModeler(Modeler):
     def save_model(self, n_latent):
         outname=f"{self.sample_name}_n_latent_{n_latent}_model"
         self.models[n_latent].save(outname, overwrite=True)
-'''
-    def get_normalized_counts(self, model, n_chunks=1):
+
+    def get_norm_expr_chunked(self, model, n_chunks=1):
         if not isinstance(model, scvi.model.SCVI):
             model = scvi.model.SCVI.load(model, adata = self.data)
         chunks = np.array_split(np.arange(0, len(self.data.obs_names)), n_chunks)
@@ -121,4 +133,16 @@ class ScviModeler(Modeler):
             normexp_this_chunk = model.get_normalized_expression(adata = self.data, library_size="latent", indices=chunk)
             gex_normexp = scipy.sparse.vstack( (gex_normexp, normexp_this_chunk.astype(pd.SparseDtype("float32",0)).sparse.to_coo().tocsc()) )
         return gex_normexp[1:,:]
-'''
+    def de_volcano_plot(csv_path, fdr_target = 0.05, title=""):
+        sample_name = os.path.basename(csv_path).split('_')[0]
+        de = pd.read_csv(csv_path)
+        de = de.set_index(de.columns[0])
+        fdr_key =f"is_de_fdr_{fdr_target}"
+
+        sp = so.Plot(data=de, x="lfc_mean", y="proba_de", color=fdr_key)\
+                .add(so.Dots(pointsize=1), legend=False)\
+                .scale(color=["red", "black"])\
+                .label(x = "Log2FoldChange", y = f"p(DE), FDR = {fdr_target}", title = title)\
+                .theme({"axes.facecolor": "w", "axes.edgecolor": "#000000"})
+        print(plt.legend())
+        return copy.deepcopy(sp)
