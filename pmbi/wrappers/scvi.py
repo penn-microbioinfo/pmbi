@@ -1,11 +1,8 @@
-<<<<<<< HEAD
-=======
 import sys
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import seaborn.objects as so
->>>>>>> 494059bb728c71e42762d2b4779a39298e6997b6
 import anndata
 import logging
 import pmbi.wrappers.scanpy as scp
@@ -16,15 +13,11 @@ import numpy as np
 import mudata
 import argparse
 import torch
-<<<<<<< HEAD
 import scvi
 import pathlib
 import pandas as pd
-import os
 import re
-=======
 import copy
->>>>>>> 494059bb728c71e42762d2b4779a39298e6997b6
 
 class Modeler(object):
     def __init__(self, batch_key = "orig_ident"):
