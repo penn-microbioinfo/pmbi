@@ -1,7 +1,7 @@
 import anndata
 import copy
 import os
-import typing
+from typing import Optional
 import pathlib
 import re
 import pandas as pd
@@ -47,7 +47,7 @@ class Paneler(object):
     def theme():
         plt.rcdefaults()
         plt.rcParams.keys()
-        plt.rcParams.update({"font.sans-serif": "Arial",
+        plt.rcParams.update({#"font.sans-serif": "Arial",
                              "font.size": 5,
                              "figure.dpi": 300,
                              "axes.titlesize": 6})
@@ -121,7 +121,7 @@ class Paneler(object):
         self.image_num += 1
         self.panel_idx = 0
 
-    def savefig(self, filename: typing.Optional[str] = None):
+    def savefig(self, filename: Optional[str] = None):
         if filename is None:
             filename = f"{self.output_prefix}_{self.image_num}.{self.format}"
         self.subplots_adjust(hspace=0.5, wspace=0.5)
@@ -140,6 +140,12 @@ def read_matrix(
     else:
         raise ValueError
 
+def read_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
+    adatas = {}
+    for path in paths:
+        adatas[getkey(path)] = read_matrix(path)
+    return adatas
+
 def read_h5ad_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
     adatas = {}
     for path in paths:
@@ -153,7 +159,6 @@ def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: os
 def adata_add_gct(adata: anndata.AnnData, gct_path: os.PathLike, rsuffix: str):
     gct = read_gct(gct_path)
     adata.obs = adata.obs.join(gct, rsuffix = rsuffix)
-
 
 def adata_to_gct(adata, outpath, layer = None):
     adata = adata.copy()
@@ -259,9 +264,10 @@ def std_qc_gex(adata: anndata.AnnData,
                min_cells: int = 3,
                min_genes: int= 200,
                plot: bool = True,
-               plot_save_path = "qc_violins.pdf",
-               mt_prefix = "mt-",
-               manual_cutoffs: dict = None
+               plot_save_path: os.PathLike = pathlib.Path("qc_violins.pdf"),
+               plot_point_size:int  = 1,
+               mt_prefix: str = "mt-",
+               manual_cutoffs: Optional[dict] = None
                ):
 
     sc.pp.filter_cells(adata, min_genes=min_genes)
@@ -301,6 +307,7 @@ def std_qc_gex(adata: anndata.AnnData,
                     jitter=0.4,
                     multi_panel=False,
                     save = False,
+                    size = plot_point_size,
                     ax = panel.next_ax()
                     )
             panel.current_ax.axhline(y=cuts[key][0], color="r")
@@ -313,6 +320,17 @@ def std_qc_gex(adata: anndata.AnnData,
     adata = adata[(adata.obs["total_counts"]<=cuts["total_counts"][1]) & (adata.obs["total_counts"]>=cuts["total_counts"][0])]
 
     return adata
+
+def manual_qc_cutoffs_to_dict(csv, sample_column):
+    mancuts = pd.read_csv(csv, sep = ",")
+    keys = set([re.sub("([_]lower)|([_]upper)", "", c) for c in mancuts.columns])
+    keys.remove(sample_column)
+    d = {}
+    for idx,row in mancuts.iterrows():
+        d[row[sample_column]] = {}
+        for k in keys:
+            d[row[sample_column]][k] = [row[f"{k}_lower"],  row[f"{k}_upper"]]
+    return d
 
 def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
 
@@ -342,7 +360,10 @@ def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     return adata
 
-def std_qc_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
+def std_qc_adt(adata: anndata.AnnData, 
+               sample_suffix: str = "sample", 
+               plot: bool = True, 
+               plot_save_path: os.PathLike = "."):
 
     sc.pp.filter_genes(adata, min_counts=1)
 
@@ -361,16 +382,16 @@ def std_qc_adt(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool
                 y="n_antibodies_by_counts",
                 data=adata.obs,
                 kind="hex",
-                norm=mpl.colors.LogNorm()).fig
-        panel.savefig(f"/srv/http/betts/coculture/figures/qc_adt/{sample_suffix}_adt1.png")
+                norm=mpl.colors.LogNorm()).figure
+        panel.savefig(os.path.join(plot_save_path, f"{sample_suffix}_adt1.png"))
         panel = Paneler(ncol=1, nrow=1, figsize = (3,3))
         panel.fig = sns.jointplot(
                 x="log1p_total_counts",
                 y="log1p_total_counts_control",
                 data=adata.obs,
                 kind="hex",
-                norm=mpl.colors.LogNorm()).fig
-        panel.savefig(f"/srv/http/betts/coculture/figures/qc_adt/{sample_suffix}_adt2.png")
+                norm=mpl.colors.LogNorm()).figure
+        panel.savefig(os.path.join(plot_save_path, f"{sample_suffix}_adt2.png"))
         plt.clf()
         plt.close()
     return adata
