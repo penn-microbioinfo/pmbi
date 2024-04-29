@@ -16,6 +16,9 @@ import matplotlib.axis
 import gc
 import pathlib
 
+# local imports
+import pmbi.io
+
 global MT_CUT
 global NFEAT_CUT
 global NRNA_CUT
@@ -129,34 +132,8 @@ class Paneler(object):
         plt.clf()
         gc.collect()
   
-def read_matrix(
-        matpath: os.PathLike, **kwargs) -> anndata.AnnData:
-    matpath = pathlib.Path(matpath)
-    if matpath.suffix == ".h5":
-        return sc.read_10x_h5(str(matpath), **kwargs)
-    elif matpath.suffix == ".h5ad":
-        return anndata.read_h5ad(str(matpath), **kwargs)
-    else:
-        raise ValueError
-
-def read_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
-    adatas = {}
-    for path in paths:
-        adatas[getkey(path)] = read_matrix(path)
-    return adatas
-
-def read_h5ad_multi(paths: list[pathlib.Path], getkey = lambda p: p.name.replace(f"{p.suffix}", "").split('_')[0]) -> dict[str, anndata.AnnData]:
-    adatas = {}
-    for path in paths:
-        adatas[getkey(path)] = sc.read_h5ad(path)
-    return adatas
-
-def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: os.PathLike):
-    for key,adata in adatas.items():
-        adata.write_h5ad(os.path.join(outdir, f"{key}_{suffix}.h5ad"))
-
 def adata_add_gct(adata: anndata.AnnData, gct_path: os.PathLike, rsuffix: str):
-    gct = read_gct(gct_path)
+    gct = pmbi.io.read_gct(gct_path)
     adata.obs = adata.obs.join(gct, rsuffix = rsuffix)
 
 def adata_to_gct(adata, outpath, layer = None):
@@ -171,17 +148,6 @@ def adata_to_gct(adata, outpath, layer = None):
         out.write(f"{len(adata.var_names)}\t{len(adata.obs_names)}\n")
         adata_df.to_csv(out, sep='\t', index=False)
 
-def read_gct(gctpath: os.PathLike):
-    with open(gctpath, 'r') as gct:
-        for _ in range(0,2):
-            gct.readline()
-        df = pd.read_csv(gct, sep='\t').transpose()
-        df.columns = df.iloc[0,:]
-        df = df.iloc[3:,:]
-        df = df.loc[df.index.str.match("[ACGT]+[-][0-9]")]
-        df = df.astype(np.float64)
-        return df
-#read_gct(f"/home/ubuntu/mnt/ankita/combined_adatas_by_donor/ssgsea/ssgsea2.0/{key.replace('-', '_')}_chenetal2020_bulkRNA-scores.gct")
 
 def obs_add_orig_barcode(adata):
     p = re.compile("([ATCG]+)([-][0-9])([-][0-9])*")
