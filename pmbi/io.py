@@ -1,6 +1,7 @@
 import os
 import scanpy as sc
 import anndata
+import mudata
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -46,23 +47,15 @@ def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
         # Assuming 'file_path' is a pathlib.Path object
         matrix_data = read_matrix(file_path)
     """
-
     if os.path.isdir(path):
-
         return sc.read_10x_mtx(path, **kwargs)
-
     else:
-
         if path.suffix == ".h5":
-
             return sc.read_10x_h5(str(path), **kwargs)
 
         elif path.suffix == ".h5ad":
-
             return anndata.read_h5ad(str(path), **kwargs)
-
         else:
-
             raise ValueError(f"Unsupported filetype: {path.suffix}")
 
 def read_matrix_multi(paths: list[Path], getkey = get_key_default) -> dict[str, anndata.AnnData]:
