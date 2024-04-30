@@ -1,13 +1,14 @@
 import os
-import scanpy as sc
+from pathlib import Path
+
 import anndata
 import mudata
-from pathlib import Path
-import pandas as pd
 import numpy as np
+import pandas as pd
+import scanpy as sc
+
 
 def get_key_default(path: Path) -> str:
-
     """
     Extract a key from a file path by removing the suffix and splitting by underscore.
 
@@ -22,10 +23,10 @@ def get_key_default(path: Path) -> str:
         key = get_key_default(file_path)
     """
 
-    return path.name.replace(f"{path.suffix}", "").split('_')[0] 
- 
+    return path.name.replace(f"{path.suffix}", "").split("_")[0]
+
+
 def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
-    
     """
     Read matrix data from file and return as an AnnData object.
     Currently supported formats:
@@ -58,8 +59,10 @@ def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
         else:
             raise ValueError(f"Unsupported filetype: {path.suffix}")
 
-def read_matrix_multi(paths: list[Path], getkey = get_key_default) -> dict[str, anndata.AnnData]:
 
+def read_matrix_multi(
+    paths: list[Path], getkey=get_key_default
+) -> dict[str, anndata.AnnData]:
     """
     Read matrix data from multiple files and return as a dictionary of AnnData objects.
     Supports the same formats as `read_matrix`
@@ -83,8 +86,10 @@ def read_matrix_multi(paths: list[Path], getkey = get_key_default) -> dict[str, 
 
     return adatas
 
-def read_h5ad_multi(paths: list[Path], getkey = get_key_default) -> dict[str, anndata.AnnData]:
 
+def read_h5ad_multi(
+    paths: list[Path], getkey=get_key_default
+) -> dict[str, anndata.AnnData]:
     """
     Read h5ad files from multiple paths and return as a dictionary of AnnData objects.
 
@@ -108,8 +113,9 @@ def read_h5ad_multi(paths: list[Path], getkey = get_key_default) -> dict[str, an
     return adatas
 
 
-def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: str) -> None:
-
+def write_h5ad_multi(
+    adatas: dict[str, anndata.AnnData], suffix: str, outdir: str
+) -> None:
     """
     Write multiple AnnData objects to h5ad files with specified suffix and output directory.
 
@@ -126,11 +132,11 @@ def write_h5ad_multi(adatas: dict[str, anndata.AnnData], suffix: str, outdir: st
         write_h5ad_multi(data_dict, suffix="normalized", outdir="/path/to/output_directory")
     """
 
-    for key,adata in adatas.items():
+    for key, adata in adatas.items():
         adata.write_h5ad(Path(os.path.join(outdir, f"{key}_{suffix}.h5ad")))
 
-def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
 
+def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
     """
     Read data from a GCT file and return as a pandas DataFrame.
 
@@ -145,15 +151,15 @@ def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
         dataframe = read_gct(gct_file_path)
     """
 
-    with open(gctpath, 'r') as gct:
+    with open(gctpath, "r") as gct:
 
         # Skip the GCT header
-        for _ in range(0,2):
+        for _ in range(0, 2):
             gct.readline()
 
-        df = pd.read_csv(gct, sep='\t').transpose()
-        df.columns = df.iloc[0,:]
-        df = df.iloc[3:,:]
+        df = pd.read_csv(gct, sep="\t").transpose()
+        df.columns = df.iloc[0, :]
+        df = df.iloc[3:, :]
         df = df.loc[df.index.str.match("[ACGT]+[-][0-9]")]
         df = df.astype(np.float64)
 

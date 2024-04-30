@@ -7,6 +7,19 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+mudata = "^0.2.3"
+scipy = "^1.13.0"
+seaborn = "^0.13.2"
+torch = "^2.3.0"
+ipython = "^8.24.0"
+scanpy = "^1.10.1"
+airr = {git = "https://github.com/airr-community/airr-standards.git", rev = "master", subdirectory = "lang/python"}
+scirpy = "^0.16.1"
+scvi-tools = "^1.1.2"
+numpy = "^1.26.4"
+pandas = "^2.2.2"
+black = {git = "https://github.com/psf/black"}
+isort = "^5.13.2"
 
 
 [build-system]

@@ -1,5 +1,4 @@
-import sys
-import os
+imLATENT_REPRport os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import seaborn.objects as so
@@ -14,59 +13,80 @@ import mudata
 import argparse
 import torch
 import scvi
-import pathlib
+from pathlib import Path
 import pandas as pd
 import re
 import copy
 
+# %%
 class Modeler(object):
-    def __init__(self, batch_key = "orig_ident"):
+    def __init__(self, datafile: Path, batch_key = "orig_ident"):
         self.batch_key = batch_key
-        self.sample_name = None
-        self.data = None
-        self._reader = None
-        self._writer = None
-        self.models = {}
+        self.datafile = datafile
+        self.type_ = None
+        self.ext = self.datafile.suffix.replace('.', '')
+        self.sample_name = self.datafile.name.replace(self.ext, '')
+        self._reader, self._writer = self._io_funs()
+        self.model = None
+        self.model_n_latent = None
 
-    def _io_funs(self, fp):
+        self.data = self._reader(self.datafile)
+        if not scp.obs_names_unique(self.data):
+            raise ValueError("obs_names must be unique before adding to Modeler")
+
+    def _io_funs(self):
         if self.ext == "h5ad":
             return (anndata.read_h5ad, anndata._io.h5ad.write_h5ad)
         elif self.ext == "h5mu":
             return (mudata.read_h5mu, mudata._core.mudata.MuData.write_h5mu)
         else:
-            raise ValueError(f"Unexpected file extension: {self.fp.suffix}")
-
-    def read(self, fp):
-        self.fp =pathlib.Path(fp)
-        self.ext = self.fp.suffix.replace('.', '')
-        self.sample_name = self.fp.name.replace(self.ext, '')
-        self._reader, self._writer = self._io_funs(self.fp)
-        self.data = self._reader(self.fp)
-
-        if not scp.obs_names_unique(self.data):
-            logging.warning("Makeing obs_names unique and saving.")
-            self.data.obs_names_make_unique()
-            self.data.write(self.fp)
-
-    def write(self, outfp):
-        if self._writer is not None:
-            self._writer(outfp, self.data)
-        else:
-            raise IOError(f"No _writer method available for {self._type_}")
-
-class ScviModeler(Modeler):
-    def __init__(self, batch_key = "orig_ident"):
-        super().__init__(batch_key)
-        self._type_ = scvi.model.SCVI
-
-    def setup_data(self, layer = None):
-        if isinstance(self.data, anndata._core.anndata.AnnData):
-            self._type_.setup_anndata(self.data, batch_key = self.batch_key, layer = layer)
+            raise ValueError(f"Unexpected file extension: {self.datafile.suffix}")
 
     def train(self, n_latent: int):
-        model = self._type_(self.data, n_latent = n_latent)
-        model.train()
-        self.models[n_latent] = model
+        self.model_n_latent = n_latent
+        self.model = self.type_(self.data, n_latent = n_latent)
+        self.model.train()
+
+    def write(self, path = None):
+        if self.model is None:
+            raise ValueError("Cannot write a model that does not exist. Train a model first")
+
+        path = path or f"./{self.sample_name}_n_latent_{self.model.n_latent}_model"
+
+        self.model[n_latent].save(outname, overwrite=True)
+
+    def load_model(self, model):
+        self.model = self.type_.load(model, adata=self.data)
+
+    def write_data(self, path):
+            self._writer(path, self.data)
+
+
+def dataframe_into_csc(df: pd.DataFrame) -> scipy.sparse.csc_array:
+    """
+    Convert a pandas DataFrame into a compressed sparse column matrix.
+
+    Parameters:
+        df (pd.DataFrame): The pandas DataFrame to convert into a CSC matrix.
+
+    Returns:
+        scipy.sparse.csc_matrix: The resulting CSC matrix.
+
+    Example:
+        # Assuming 'dataframe' is a pandas DataFrame
+        csc_matrix = dataframe_into_csc(dataframe)
+    """
+    return df.astype(pd.SparseDtype("float32",0)).sparse.to_coo().tocsc()
+
+
+class ScviModeler(Modeler):
+    def __init__(self, datafile, batch_key = "orig_ident"):
+        super().__init__(datafile, batch_key)
+        self.type_ = scvi.model.SCVI
+
+    def setup_data(self, layer = None):
+        if isinstance(self.data, anndata.AnnData):
+            self.type_.setup_anndata(self.data, batch_key = self.batch_key, layer = layer)
 
     def get_latent_repr(self, n_latent: int, as_obsm=True):
         obsm_key = f"X_scvi_n_latent_{n_latent}"
@@ -75,12 +95,66 @@ class ScviModeler(Modeler):
         else:
             return self.models[n_latent].get_latent_representation()
 
-    def get_normalized_expr(self, n_latent: int, as_layer=True, n_samples = 1): 
-        if as_layer:
-            self.data.layers[f"normExp_scvi_n_latent_{n_latent}"] = self.models[n_latent].get_normalized_expression(n_samples = n_samples)
-        else:
-            return self.models[n_latent].get_normalized_expression()
+    def get_normalized_expression(self,
+                                  model: scvi.model.SCVI = None, 
+                                  chunksize: int|None = None,
+                                  n_samples: int = 10,
+                                  library_size: str|int = "latent",
+                                  **kwargs
+                                  ):
+        """
+        Get the normalized gene expression data using the specified SCVI model.
 
+        Parameters:
+            self (pmbi.wrappers.scvi.ScviModeler)
+            model (scvi.model.SCVI): The trained SCVI model used for normalization. If not provided, will default to loaded model, if it exists.
+            chunksize (Optional[int]): The number of cells to process simultaneously. If None, process all cells at once. Defaults to None.
+            n_samples (int): The number of samples to draw from the posterior predictive distribution. Defaults to 10.
+            library_size (Union[str, int]): Method for library size normalization. Defaults to "latent".
+                                             If "latent", uses the inferred library size from the latent space. 
+                                             If int, uses the provided value as the library size.
+            **kwargs: Additional keyword arguments to pass to the SCVI model's `get_normalized_expression` method.
+
+        Returns:
+            scipy.sparse.csc_matrix: The normalized gene expression data in a sparse matrix format.
+
+        Raises:
+            ValueError: 
+                If model is None, loaded model is not trained, or  no model is currently loaded (ie self.model is also None)
+                If the provided model is not an instance of `scvi.model.SCVI`.
+
+        Example:
+            # Assuming 'model' is a trained SCVI model
+            norm_expression = obj.get_normalized_expression(model, chunksize=100, n_samples=5)
+        """
+
+        if model is None:
+            if self.model is not None:
+                model = self.model
+            else:
+                raise ValueError
+        else:
+            if not isinstance(model, scvi.model.SCVI):
+                raise ValueError
+
+        if not model.is_trained:
+            raise ValueError
+
+        cell_indices = np.arange(0, len(self.data.obs_names))
+        if chunksize is None:
+            normexpr = model.get_normalized_expression(adata = self.data, n_samples = n_samples ,library_size=library_size, indices=None, **kwargs)
+            normexpr = dataframe_into_csc(normexpr)
+
+        else:
+            chunks = np.split(cell_indices, indices_or_sections=chunksize)
+            normexpr = scipy.sparse.csc_array((1,len(self.data.var_names)), dtype=np.float32)
+            for chunk in chunks:
+                normexpr_chunk = model.get_normalized_expression(adata = self.data, n_samples = n_samples ,library_size=library_size, indices=chunk, **kwargs)
+                normexpr = scipy.sparse.vstack(normexpr, dataframe_into_csc(normexpr_chunk))
+        
+        return normexpr[0:,:]
+
+    ### Needs checking ###
     def differential_expression(self, groupby: str, factorial: bool = False, comparisons: typing.Optional[list[tuple[str]]] = None, fdr_target = 0.05) -> dict:
         n_latent = list(self.models.keys())[0]
         if factorial and comparisons is not None:
@@ -100,32 +174,15 @@ class ScviModeler(Modeler):
 
         return de
 
-    def load_model(self, model):
-        n_latent = int(re.search("[_]n[_]latent[_]([0-9]+)[_]", os.path.basename(model)).group(1))
-        self.models[n_latent] = self._type_.load(model, adata=self.data)
-        print(self.models)
 
     @staticmethod
     def load(fp, model):
         sm = ScviModeler()
         sm.read(fp)
         n_latent = int(re.search("[_]n[_]latent[_]([0-9]+)[_]", os.path.basename(model)).group(1))
-        sm.models[n_latent] = sm._type_.load(model, adata=sm.data)
+        sm.models[n_latent] = sm.type_.load(model, adata=sm.data)
         return sm
 
-    def save_model(self, n_latent):
-        outname=f"{self.sample_name}_n_latent_{n_latent}_model"
-        self.models[n_latent].save(outname, overwrite=True)
-
-    def get_norm_expr_chunked(self, model, n_chunks=1):
-        if not isinstance(model, scvi.model.SCVI):
-            model = scvi.model.SCVI.load(model, adata = self.data)
-        chunks = np.array_split(np.arange(0, len(self.data.obs_names)), n_chunks)
-        gex_normexp = scipy.sparse.csc_array((1,len(self.data.var_names)), dtype=np.float32)
-        for chunk in chunks:
-            normexp_this_chunk = model.get_normalized_expression(adata = self.data, library_size="latent", indices=chunk)
-            gex_normexp = scipy.sparse.vstack( (gex_normexp, normexp_this_chunk.astype(pd.SparseDtype("float32",0)).sparse.to_coo().tocsc()) )
-        return gex_normexp[1:,:]
     def de_volcano_plot(csv_path, fdr_target = 0.05, title=""):
         sample_name = os.path.basename(csv_path).split('_')[0]
         de = pd.read_csv(csv_path)
