@@ -266,6 +266,8 @@ class CellrangerAtac(CellrangerCommand):
                 f"{self.path_to_outs}/peak_annotation.tsv",
                 f"{self.path_to_outs}/peak_motif_mapping.bed",
                 f"{self.path_to_outs}/peaks.bed",
+                f"{self.path_to_outs}/fragments.tsv.gz",
+                f"{self.path_to_outs}/fragments.tsv.gz.tbi",
                 f"{self.path_to_outs}/analysis/umap",
                 f"{self.path_to_outs}/cloupe.cloupe"
                 ]
