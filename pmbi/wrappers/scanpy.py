@@ -451,6 +451,46 @@ def ranked_genes_to_df(adata):
     return ranked_ds
 
 
+# %%
+def get_counts(
+    adata: anndata.AnnData, layer: str | None = None
+) -> scipy.sparse.csc_matrix:
+    if layer is None:
+        return adata.X
+    else:
+        return adata.layers[layer]
+
+def get_count_frame(
+    adata: anndata.AnnData, layer: str | None = None
+) -> pd.DataFrame:
+    if layer is None:
+        return pd.DataFrame(adata.X.toarray(), index = adata.obs_names, columns = adata.var_names)
+    else:
+        return pd.DataFrame(adata.layers[layer].toarray(), index = adata.obs_names, columns = adata.var_names)
+
+def mean_expression(
+    adata: anndata.AnnData, groupby: str | None = None, layer: str = None
+) -> pd.DataFrame:
+    if groupby is None:
+        counts = get_counts(adata, layer)
+        meanexpr = counts.mean(axis=0).transpose().getA()[:, 0]
+        meanexpr = pd.DataFrame({"all_cells": meanexpr}, index=adata.var_names)
+    else:
+        groups = adata.obs[groupby].unique()
+        group_means = []
+        for group in groups:
+            group_means.append(
+                get_counts(adata[adata.obs[groupby] == group], layer=layer)
+                .mean(axis=0)
+                .transpose()
+                .getA()
+            )
+        meanexpr = pd.DataFrame(
+            np.column_stack(group_means), index=adata.var_names, columns=groups
+        )
+    return meanexpr
+
+
 if __name__ == "__main__":
     COLOR_GENES = ["CD3D", "CD4", "CD8A", "MS4A1", "CD19", "TRCF", "TCF7"]
     COLOR_AB = [

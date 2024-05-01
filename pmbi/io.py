@@ -164,3 +164,16 @@ def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
         df = df.astype(np.float64)
 
         return df
+
+def adata_write_counts(adata: anndata.AnnData, file: str, sep = ',', layer: str|None = None):
+    if layer is None:
+        df = pd.DataFrame(adata.X.toarray())
+
+    else:
+        df = pd.DataFrame(adata.layers[layer].toarray())
+
+    df.index = adata.obs_names
+    df.columns = adata.var_names
+
+    df.to_csv(file, sep = sep)
+
