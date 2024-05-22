@@ -1,4 +1,4 @@
-imLATENT_REPRport os
+import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import seaborn.objects as so
