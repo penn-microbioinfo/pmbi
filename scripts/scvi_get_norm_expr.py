@@ -16,7 +16,6 @@ output_path = args.output_path or f"./{os.path.basename(args.model)}_normcounts.
 modeler = pmbscvi.ScviModeler(args.data)
 modeler.load_model(args.model)
 normexpr = modeler.get_normalized_expression(
-        model = model,
         chunksize = args.chunksize,
         n_samples = args.n_samples,
         library_size = args.library_size
