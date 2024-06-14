@@ -7,6 +7,7 @@ from typing import Optional
 
 import anndata
 import matplotlib as mpl
+import matplotlib.axes
 import matplotlib.axis
 import matplotlib.pyplot as plt
 import numpy as np
@@ -112,7 +113,7 @@ class Paneler(object):
         else:
             return False
 
-    def next_ax(self):
+    def next_ax(self) -> matplotlib.axes.Axes:
         if self.panel_idx_out_of_bounds():
             self._advance_image()
         coords = Paneler.subplot_idx_to_pos(self.nrow, self.ncol, self.panel_idx)
