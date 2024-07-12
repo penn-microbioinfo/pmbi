@@ -46,6 +46,17 @@ def original_barcodes(current_barcodes: pd.Series | pd.Index) -> pd.Series | pd.
 
 
 # %%
+def shared_barcodes(adatas: list) -> pd.Series:
+    merged = functools.reduce(
+        lambda x, y: pd.merge(
+            x.obs, y.obs, how="inner", left_index=True, right_index=True
+        ),
+        adatas,
+    )
+    return pd.Series(merged.index)
+
+
+# %%
 def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
     return pd.DataFrame(
         {
