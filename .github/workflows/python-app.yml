@@ -28,8 +28,9 @@ jobs:
           poetry-version: "1.8.2"
       - name: Install project
         run: |
-          pip install -e .[test]
           poetry install
+          source .venv/bin/activate
+          pip install -e .[test]
       - name: Run tests
         run: pytest -s -vvvv -l --tb=long
       - name: Generate coverage report

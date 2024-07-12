@@ -58,9 +58,10 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
         }
     )
 
-
 # %%
 def canonicalize_barcodes(
-    x: anndata.AnnData, y: anndata.AnnData, batch_key: str
+    adata: anndata.AnnData, based_on: anndata.AnnData, batch_key: str
 ) -> anndata.AnnData:
-    pass
+    mapper = based_on.get_barcode_mapper()
+    adata.obs["current_barcode"] = adata.obs.index
+
