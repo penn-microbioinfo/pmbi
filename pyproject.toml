@@ -17,7 +17,6 @@ scirpy = "^0.16.1"
 scvi-tools = "^1.1.2"
 numpy = "^1.26.4"
 pandas = "^2.2.2"
-pytest = "^8.2.2"
 
 [tool.poetry.group.git.dependencies]
 airr = {git = "https://github.com/airr-community/airr-standards.git", rev = "master", subdirectory = "lang/python"}
@@ -26,6 +25,7 @@ airr = {git = "https://github.com/airr-community/airr-standards.git", rev = "mas
 black = {git = "https://github.com/psf/black"}
 isort = "^5.13.2"
 debugpy = "^1.8.2"
+pytest = "^8.2.2"
 
 [build-system]
 requires = ["poetry-core"]
