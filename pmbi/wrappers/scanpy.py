@@ -49,17 +49,6 @@ def adata_to_gct(adata, outpath, layer=None):
         adata_df.to_csv(out, sep="\t", index=False)
 
 
-def obs_add_orig_barcode(adata):
-    p = re.compile("([ATCG]+)([-][0-9])([-][0-9])*")
-    orig_barcodes = []
-    for obsname in adata.obs_names:
-        m = re.match(p, obsname)
-        if m is not None:
-            orig_barcodes.append(f"{m.groups()[0]}{m.groups()[1]}")
-    adata.obs["orig_barcode"] = orig_barcodes
-    return adata
-
-
 def obs_names_unique(adata: anndata.AnnData) -> bool:
     return len(adata.obs_names) == len(adata.obs_names.unique())
 
