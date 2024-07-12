@@ -1,4 +1,5 @@
 # %%
+import functools
 import re
 
 import anndata
@@ -27,20 +28,20 @@ def _original_barcode(barcode: str, pattern: re.Pattern = BARCODE_PATTERN) -> st
 
 
 # %%
-def original_barcodes(current_barcodes: pd.Series | pd.Index) -> pd.Series | pd.Index:
+def original_barcodes(current_barcodes: pd.Series | pd.Index) -> pd.Series:
     """
     Processes the current barcodes and returns the original barcodes.
 
     Args:
-        current_barcodes (pd.Series|pd.Index): A pandas Series or Index object containing the current barcodes.
+        current_barcodes (pd.Series|pd.Index): A pandas Series/Index object containing the current barcodes.
 
     Returns:
-        pd.Series|pd.Index: A pandas Series or Index object (depending on input) containing the original barcodes.
+        pd.Series|pd.Index: A pandas Series object containing the original barcodes.
     """
     if isinstance(current_barcodes, pd.Series):
         return current_barcodes.apply(_original_barcode)
     elif isinstance(current_barcodes, pd.Index):
-        return pd.Index(current_barcodes.to_series().apply(_original_barcode))
+        return pd.Series(current_barcodes.to_series().apply(_original_barcode))
     else:
         raise ValueError(f"Expected pd.Series, got: {type(original_barcodes)}")
 
@@ -62,12 +63,13 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
         {
             k: v.to_numpy()
             for k, v in {
-                "unique_barcode": adata.obs.index.to_numpy(),
+                "unique_barcode": adata.obs.index,
                 "original_barcode": original_barcodes(adata.obs.index),
-                "batch_key": adata.obs[batch_key],
+                batch_key: adata.obs[batch_key],
             }.items()
         }
     )
+
 
 # %%
 def canonicalize_barcodes(
@@ -96,3 +98,4 @@ def canonicalize_barcodes(
     return adata
 
 
+# %%
