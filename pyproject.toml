@@ -28,6 +28,7 @@ black = {git = "https://github.com/psf/black"}
 isort = "^5.13.2"
 debugpy = "^1.8.2"
 pytest = "^8.2.2"
+pytest-cov = "^5.0.0"
 
 [build-system]
 requires = ["poetry-core"]
