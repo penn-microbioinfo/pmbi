@@ -33,7 +33,7 @@ jobs:
           pip install -e .[test]
       - name: Activate virtualenv
         run: |
-          source .venv/bin/activate
+          . .venv/bin/activate
           echo PATH=$PATH >> $GITHUB_ENV
       - name: Run tests
         run: pytest -s -vvvv -l --tb=long
