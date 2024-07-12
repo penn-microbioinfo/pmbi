@@ -62,6 +62,11 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
 def canonicalize_barcodes(
     adata: anndata.AnnData, based_on: anndata.AnnData, batch_key: str
 ) -> anndata.AnnData:
-    mapper = based_on.get_barcode_mapper()
-    adata.obs["current_barcode"] = adata.obs.index
+    adata.obs["original_barcode"] = adata.obs.index 
+    mapper = get_barcode_mapper(adata=based_on, batch_key=batch_key)
+    mapper = pd.merge(mapper, adata.obs[["original_barcode", batch_key]], how = "right", on = ["original_barcode", batch_key])
+    adata.obs.set_index(mapper["unique_barcode"])
+    return adata
+
+    
 

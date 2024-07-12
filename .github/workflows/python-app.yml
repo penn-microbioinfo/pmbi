@@ -28,6 +28,7 @@ jobs:
           poetry-version: "1.8.2"
       - name: Install project
         run: |
+          export POETRY_VIRTUALENVS_IN_PROJECT=true
           poetry install
           source .venv/bin/activate
           pip install -e .[test]
