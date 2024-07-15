@@ -84,13 +84,22 @@ def original_barcodes(current_barcodes: pd.Series | pd.Index) -> pd.Series:
 
 # %%
 def shared_barcodes(adatas: list) -> pd.Series:
-    merged = functools.reduce(
-        lambda x, y: pd.merge(
-            x.obs, y.obs, how="inner", left_index=True, right_index=True
-        ),
-        adatas,
-    )
-    return pd.Series(merged.index)
+    """
+    Identify shared barcodes among a list of AnnData objects.
+
+    Parameters:
+    adatas (list): A list of AnnData objects from which to identify shared barcodes.
+
+    Returns:
+    pd.Series: A pandas Series containing the barcodes that are shared among all input AnnData objects.
+    """
+    if any([not obs_names_unique(adata) for adata in adatas]):
+        raise ValueError(
+            "Member of adatas given to shared_barcodes has non-unique barcodes. Fix this and canonicalize between members of list before calling again."
+        )
+    indices = [pd.Series(adata.obs.index) for adata in adatas]
+    merged = functools.reduce(lambda x, y: x[x.isin(y)], indices)
+    return merged
 
 
 # %%
