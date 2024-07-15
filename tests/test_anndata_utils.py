@@ -4,8 +4,9 @@ import anndata
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.sparse import random
+import scipy.sparse
 
+import pmbi.anndata.random
 import pmbi.anndata.util
 
 importlib.reload(pmbi.anndata.util)
@@ -80,10 +81,12 @@ def test_shared_barcodes_correctly_id_shared():
         "TGAGCATAGTTCCAGA-1",
     ]
     adata1 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1),
     )
     adata2 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2),
     )
     pmbi.anndata.util.shared_barcodes([adata1, adata2])
     assert pmbi.anndata.util.shared_barcodes([adata1, adata2]).equals(
@@ -113,10 +116,12 @@ def test_shared_barcodes_correctly_id_unshared():
         "TGAGCATAGTTCCATT-1",
     ]
     adata1 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1),
     )
     adata2 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2),
     )
     assert pmbi.anndata.util.shared_barcodes([adata1, adata2]).equals(
         pd.Series(["TGAGCATAGTTCCACT-1", "TGAGCATAGTTCCACG-1", "TGAGCATAGTTCCACC-1"])
@@ -135,7 +140,7 @@ def test_shared_barcodes_correctly_id_shared_many_anndata():
     for _ in range(0, 30):
         adatas.append(
             anndata.AnnData(
-                X=random(m=4, n=10),
+                X=scipy.sparse.random(m=4, n=10),
                 obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bcs),
             )
         )
@@ -165,10 +170,12 @@ def test_shared_barcodes_correctly_raise_value_exception_on_non_unique_bcs():
         "TGAGCATAGTTCCATT-1",
     ]
     adata1 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc1),
     )
     adata2 = anndata.AnnData(
-        X=random(m=4, n=10), obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2)
+        X=scipy.sparse.random(m=4, n=10),
+        obs=pd.DataFrame(np.random.random(size=(4, 3)), index=bc2),
     )
     with pytest.raises(ValueError):
         pmbi.anndata.util.shared_barcodes([adata1, adata2])
