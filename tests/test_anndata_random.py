@@ -1,4 +1,5 @@
 import pmbi.anndata.random
+import anndata
 from pmbi.anndata.util import BARCODE_PATTERN
 import re
 
