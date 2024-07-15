@@ -172,3 +172,40 @@ def test_shared_barcodes_correctly_raise_value_exception_on_non_unique_bcs():
     )
     with pytest.raises(ValueError):
         pmbi.anndata.util.shared_barcodes([adata1, adata2])
+
+
+# %%
+def test_get_barcode_mapper_produces_correct_map():
+    adata = pmbi.anndata.random.random_adata(shape=(10, 10))
+    adata.obs["batch_key"] = "batch1"
+    bcs = adata.obs.index
+    mapper = pmbi.anndata.util.get_barcode_mapper(adata=adata, batch_key="batch_key")
+    should_be = pd.DataFrame(
+        {
+            "unique_barcode": bcs,
+            "original_barcode": bcs,
+            "batch_key": adata.obs["batch_key"],
+        }
+    ).reset_index(drop=True)
+    assert mapper.equals(should_be)
+
+
+def test_get_barcode_mapper_raises_value_erros_when_obs_names_not_unique():
+    adata = pmbi.anndata.random.random_adata(shape=(5, 5))
+    adata.obs.index = [list(adata.obs.index)[i] for i in [0, 0, 0, 0, 0]]
+    adata.obs["batch_key"] = "batch1"
+    with pytest.raises(ValueError):
+        pmbi.anndata.util.get_barcode_mapper(adata=adata, batch_key="batch_key")
+
+
+def test_obs_canonicalize_barcodes():
+    adata1 = pmbi.anndata.random.random_adata(shape=(20, 20))
+    adata1.obs["batch_key"] = ["batch1"] * 10 + ["batch2"] * 10
+    adata1.obs.index = [list(adata1.obs.index)[n] for n in list(range(0, 10)) * 2]
+    adata2 = adata1.copy()
+    adata1.obs_names_make_unique()
+    assert adata1.obs.index.equals(
+        pmbi.anndata.util.obs_canonicalize_barcodes(
+            adata2, adata1, batch_key="batch_key"
+        ).obs.index
+    )
