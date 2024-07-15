@@ -47,4 +47,13 @@ def random_barcodes(n: int, length: int = 16, assert_unique=False) -> list:
 
 
 # %%
+def random_adata(shape: tuple[int, int], nobs_cols=5, nvar_cols=5, assert_unique_barcodes = False) -> anndata.AnnData:
+    return anndata.AnnData(
+        X=scipy.sparse.random(m=shape[0], n=shape[1]),
+        obs=pd.DataFrame(
+            np.random.random(size=(shape[0], nobs_cols)),
+            index=random_barcodes(n=shape[0], assert_unique = assert_unique_barcodes),
+        ),
+        var=pd.DataFrame(np.random.random(size=(shape[1], nvar_cols))),
+    )
 
