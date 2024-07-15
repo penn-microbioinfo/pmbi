@@ -216,3 +216,15 @@ def test_obs_canonicalize_barcodes():
             adata2, adata1, batch_key="batch_key"
         ).obs.index
     )
+
+# %%
+def test_obs_canonicalize_barcodes_raises_value_error_when_common_barcodes_within_batch():
+    adata1 = pmbi.anndata.random.random_adata(shape=(20, 20))
+    adata1.obs["batch_key"] = ["batch1"] * 20
+    adata1.obs.index = [list(adata1.obs.index)[n] for n in list(range(0, 10)) * 2]
+    adata2 = adata1.copy()
+    adata1.obs_names_make_unique()
+    with pytest.raises(ValueError):
+        pmbi.anndata.util.obs_canonicalize_barcodes(
+            adata2, adata1, batch_key="batch_key"
+        )
