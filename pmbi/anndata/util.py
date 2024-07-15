@@ -104,6 +104,23 @@ def shared_barcodes(adatas: list) -> pd.Series:
 
 # %%
 def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
+    """
+    Generate a DataFrame mapping original barcodes to unique barcodes and an batch_key that
+    specifies what batch the observations come from. This can be used to canonicalize unique
+    and common barcodes.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        An AnnData object upon which make_obs_unique has already been run.
+    batch_key : str
+        The key in `adata.obs` that corresponds to batch annotations.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing original barcodes, unique barcodes, and batch annotations as columns.
+    """
     return pd.DataFrame(
         {
             k: v.to_numpy()
