@@ -156,7 +156,7 @@ def test_shared_barcodes_correctly_id_shared_many_anndata():
     )
 
 
-def test_shared_barcodes_correctly_raise_value_exception_on_non_unique_bcs():
+def test_shared_barcodes_correctly_raise_value_error_on_non_unique_bcs():
     bc1 = [
         "TGAGCATAGTTCCACT-1",
         "TGAGCATAGTTCCACT-1",
