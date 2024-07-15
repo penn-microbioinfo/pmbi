@@ -48,15 +48,6 @@ def adata_to_gct(adata, outpath, layer=None):
         out.write(f"{len(adata.var_names)}\t{len(adata.obs_names)}\n")
         adata_df.to_csv(out, sep="\t", index=False)
 
-
-def obs_names_unique(adata: anndata.AnnData) -> bool:
-    return len(adata.obs_names) == len(adata.obs_names.unique())
-
-
-def var_names_unique(adata: anndata.AnnData) -> bool:
-    return len(adata.var_names) == len(adata.var_names.unique())
-
-
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
     for sample, adata in adatas.items():
