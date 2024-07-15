@@ -154,7 +154,7 @@ def obs_canonicalize_barcodes(
     anndata.AnnData: The AnnData object with canonicalized observation barcodes.
     """
     adata = adata.copy()
-    adata.obs["original_barcode"] = adata.obs.index.to_series()
+    adata.obs = adata.obs.reset_index(names="original_barcode")
     mapper = get_barcode_mapper(adata=based_on, batch_key=batch_key)
     mapper = pd.merge(
         mapper,
@@ -162,19 +162,24 @@ def obs_canonicalize_barcodes(
         how="right",
         on=["original_barcode", batch_key],
     )
+    if any(
+        [
+            len(v) > 1
+            for k, v in mapper.groupby(["original_barcode", batch_key]).groups.items()
+        ]
+    ):
+        raise ValueError(
+            "There are common original barcodes within batches. Are you sure you selected the correct batch_key?"
+        )
     mapper["unique_barcode"] = mapper.apply(
         lambda row: (
             row["original_barcode"]
             if pd.isnull(row["unique_barcode"])
-            else row["original_barcode"]
+            else row["unique_barcode"]
         ),
         axis=1,
     )
-    if any(mapper["unique_barcode"].isnull()):
-        raise ValueError(
-            "Unable to canonicalize some barcodes. NAs would be introduced"
-        )
-    adata.obs.set_index(mapper["unique_barcode"])
+    adata.obs = adata.obs.set_index(mapper["unique_barcode"])
     return adata
 
 
