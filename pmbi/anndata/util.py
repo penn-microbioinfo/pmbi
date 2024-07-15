@@ -9,6 +9,42 @@ BARCODE_PATTERN = re.compile("([ATCG]+)([-][0-9])([-][0-9])*")
 
 
 # %%
+def obs_names_unique(adata: anndata.AnnData) -> bool:
+    """
+    Check if obs_names in the AnnData object are unique.
+
+    Parameters:
+    -----------
+    adata : anndata.AnnData
+        The AnnData object to check for unique obs_names.
+
+    Returns:
+    --------
+    bool
+        True if obs_names are unique, False otherwise.
+    """
+    return len(adata.obs_names) == len(adata.obs_names.unique())
+
+
+# %%
+def var_names_unique(adata: anndata.AnnData) -> bool:
+    """
+    Check if var_names in the AnnData object are unique.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        The AnnData object to check for unique var_names.
+
+    Returns
+    -------
+    bool
+        True if the var_names are unique, False otherwise.
+    """
+    return len(adata.var_names) == len(adata.var_names.unique())
+
+
+# %%
 def _original_barcode(barcode: str, pattern: re.Pattern = BARCODE_PATTERN) -> str:
     """
     Extracts the original barcode from the given string based on a specific pattern.
