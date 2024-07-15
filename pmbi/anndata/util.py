@@ -75,6 +75,18 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
 def canonicalize_barcodes(
     adata: anndata.AnnData, based_on: anndata.AnnData, batch_key: str
 ) -> anndata.AnnData:
+    """
+    Canonicalizes the barcodes in the observation (obs) of an AnnData object based on the unique obs_names defined 
+    in another object AnnData object. These unique names often come from running make_obs_unique on an object.
+
+    Parameters:
+    adata (anndata.AnnData): The AnnData object whose observation barcodes need to be canonicalized with another.
+    based_on (anndata.AnnData): The AnnData object that serves as the reference for canonicalizing the barcodes.
+    batch_key (str): The key used to identify batches in the observations of the AnnData objects.
+
+    Returns:
+    anndata.AnnData: The AnnData object with canonicalized observation barcodes.
+    """
     adata = adata.copy()
     adata.obs["original_barcode"] = adata.obs.index.to_series()
     mapper = get_barcode_mapper(adata=based_on, batch_key=batch_key)
