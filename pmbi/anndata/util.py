@@ -146,6 +146,20 @@ def obs_canonicalize_barcodes(
     Canonicalizes the barcodes in the observation (obs) of an AnnData object based on the unique obs_names defined
     in another object AnnData object. These unique names often come from running make_obs_unique on an object.
 
+    Barcodes unique in `based_on` are assigned to non-unique barcodes in `adata` by...
+    1) deriving the original barcode with `original_barcode` from this module
+    2) constucting a DataFrame containing with columns: `unique_barcode`, `original_barcode`, and `batch_key` from 
+    `based_on`
+    3) merging that DataFrame with one constructed from `adata.obs.index` and `batch_key` from `adata`
+
+    Values in `unique_barcode` in the merge product represent the canonicalized barcodes since original barcodes 
+    should not be duplicated within batches.
+
+    Barcodes present in the index of `adata` with no corresponding index in `based_on` will be `nan` in the merge product.
+    First, those are replaced back with their original barcode from `adata`.
+    Finally, the entire index is deduplicated with anndata.utils.`make_index_unique`. NOTE: Because of this final step,
+    barcodes are likely to change between `based_on` and the Index of the returned AnnData.
+
     Parameters:
     adata (anndata.AnnData): The AnnData object whose observation barcodes need to be canonicalized with another.
     based_on (anndata.AnnData): The AnnData object that serves as the reference for canonicalizing the barcodes.
