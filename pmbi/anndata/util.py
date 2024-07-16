@@ -122,7 +122,7 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
         A DataFrame containing original barcodes, unique barcodes, and batch annotations as columns.
     """
     if not obs_names_unique(adata):
-        logging.warning("Given adata has non-unique barcodes. 'unique barcodes' in returned mapper are not be unique'")
+        logging.warning("Given adata has non-unique barcodes. 'unique barcodes' in returned mapper are not unique")
         # raise ValueError(
         #     "Given adata has non-unique barcodes. Run anndata.make_obs_names_unique"
         # )
