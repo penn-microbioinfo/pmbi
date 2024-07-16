@@ -194,7 +194,9 @@ def obs_canonicalize_barcodes(
         ),
         axis=1,
     )
-    adata.obs = adata.obs.set_index(mapper["unique_barcode"])
+    new_index = make_index_unique(pd.Index(mapper["unique_barcode"]), join = "-")
+    adata.obs = adata.obs.set_index(new_index)
+    assert obs_names_unique(adata), "Obs names are not unique. Something has gone wrong."
     return adata
 
 
