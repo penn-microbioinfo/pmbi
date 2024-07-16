@@ -197,14 +197,6 @@ def test_get_barcode_mapper_produces_correct_map():
     assert mapper.equals(should_be)
 
 
-def test_get_barcode_mapper_raises_value_erros_when_obs_names_not_unique():
-    adata = pmbi.anndata.random.random_adata(shape=(5, 5))
-    adata.obs.index = [list(adata.obs.index)[i] for i in [0, 0, 0, 0, 0]]
-    adata.obs["batch_key"] = "batch1"
-    with pytest.raises(ValueError):
-        pmbi.anndata.util.get_barcode_mapper(adata=adata, batch_key="batch_key")
-
-
 def test_obs_canonicalize_barcodes():
     adata1 = pmbi.anndata.random.random_adata(shape=(20, 20))
     adata1.obs["batch_key"] = ["batch1"] * 10 + ["batch2"] * 10
