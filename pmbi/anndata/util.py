@@ -1,11 +1,16 @@
 # %%
 import functools
+import logging
 import re
+from collections import Counter
 
 import anndata
+import muon as mu
+import numpy as np
 import pandas as pd
+from anndata.utils import make_index_unique
 
-BARCODE_PATTERN = re.compile("([ATCG]+)([-][0-9])([-][0-9])*")
+BARCODE_PATTERN = re.compile("([ATCG]+)([-][0-9])*")
 
 
 # %%
@@ -122,7 +127,9 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
         A DataFrame containing original barcodes, unique barcodes, and batch annotations as columns.
     """
     if not obs_names_unique(adata):
-        logging.warning("Given adata has non-unique barcodes. 'unique barcodes' in returned mapper are not unique")
+        logging.warning(
+            "Given adata has non-unique barcodes. 'unique barcodes' in returned mapper are not unique"
+        )
         # raise ValueError(
         #     "Given adata has non-unique barcodes. Run anndata.make_obs_names_unique"
         # )
@@ -139,6 +146,18 @@ def get_barcode_mapper(adata: anndata.AnnData, batch_key: str) -> pd.DataFrame:
 
 
 # %%
+def _make_barcode_unique(barcode, new_barcodes):
+    while barcode in new_barcodes:
+        barcode = f"{barcode}-1"
+    return barcode
+
+# %%
+def strip_barcodes_counts(adata: anndata.AnnData):
+    index = pd.Series(adata.obs.index).apply(lambda idx: re.sub("([-][0-9])*$", "", idx))
+    adata.obs = adata.obs.set_index(index)
+    return adata
+
+# %%
 def obs_canonicalize_barcodes(
     adata: anndata.AnnData, based_on: anndata.AnnData, batch_key: str
 ) -> anndata.AnnData:
@@ -148,17 +167,23 @@ def obs_canonicalize_barcodes(
 
     Barcodes unique in `based_on` are assigned to non-unique barcodes in `adata` by...
     1) deriving the original barcode with `original_barcode` from this module
-    2) constucting a DataFrame containing with columns: `unique_barcode`, `original_barcode`, and `batch_key` from 
+    2) constucting a DataFrame containing with columns: `unique_barcode`, `original_barcode`, and `batch_key` from
     `based_on`
     3) merging that DataFrame with one constructed from `adata.obs.index` and `batch_key` from `adata`
 
-    Values in `unique_barcode` in the merge product represent the canonicalized barcodes since original barcodes 
+    Values in `unique_barcode` in the merge product represent the canonicalized barcodes since original barcodes
     should not be duplicated within batches.
 
     Barcodes present in the index of `adata` with no corresponding index in `based_on` will be `nan` in the merge product.
-    First, those are replaced back with their original barcode from `adata`.
-    Finally, the entire index is deduplicated with anndata.utils.`make_index_unique`. NOTE: Because of this final step,
-    barcodes are likely to change between `based_on` and the Index of the returned AnnData.
+    At first, those are replaced back with their original barcode from `adata`, many of which many not be unique.
+
+    To make all barcodes in `adata` unique while preserving the canonicalized barcodes common between `adata` and `based_on`:
+        1) Add all common barcodes to a deduplicated set and populate a Counter with them
+        2) Loop over all barcodes only present in `adata` and add '-{count}' to them based on Counter, updating the new_index
+        only when `new_name` doesn't not overlap with the deduplicated set
+
+    This assures that where barcodes in inputs `adata` and `based_on` overlap (and thus required canonicalization in the 
+    first place), the canonicalized barcode is always returned.
 
     Parameters:
     adata (anndata.AnnData): The AnnData object whose observation barcodes need to be canonicalized with another.
@@ -185,19 +210,71 @@ def obs_canonicalize_barcodes(
     ):
         raise ValueError(
             "There are common original barcodes within batches. Are you sure you selected the correct batch_key?"
-        )
-    mapper["unique_barcode"] = mapper.apply(
-        lambda row: (
-            row["original_barcode"]
-            if pd.isnull(row["unique_barcode"])
-            else row["unique_barcode"]
-        ),
-        axis=1,
-    )
-    new_index = make_index_unique(pd.Index(mapper["unique_barcode"]), join = "-")
-    adata.obs = adata.obs.set_index(new_index)
-    assert obs_names_unique(adata), "Obs names are not unique. Something has gone wrong."
+            )
+    counter = Counter()
+    common_barcodes_idx = np.where(~pd.isnull(mapper["unique_barcode"]))[0]
+    other_barcodes_idx = np.where(pd.isnull(mapper["unique_barcode"]))[0]
+    index = mapper.apply(
+            lambda row: (
+                row["original_barcode"]
+                if pd.isnull(row["unique_barcode"])
+                else row["unique_barcode"]
+                ),
+            axis=1,
+            )
+    dedupl_set = set()
+    for idx in common_barcodes_idx:
+        dedupl_set.add(index[idx])
+        counter[index[idx]] += 1
+    for idx in other_barcodes_idx:
+        counter[index[idx]] += 1
+        if index[idx] not in dedupl_set:
+            dedupl_set.add(index[idx])
+            index[idx] = index[idx]
+        else:
+            while True:
+                new_name = f"{index[idx]}-{counter[index[idx]]}"
+                counter[new_name] += 1
+                if new_name not in dedupl_set:
+                    dedupl_set.add(new_name)
+                    index[idx] = new_name
+                    break
+    adata.obs.index = pd.Index(index)
+    assert obs_names_unique(
+            adata
+            ), "Obs names are not unique. Something has gone wrong."
     return adata
 
 
 # %%
+# def barcodes_canonicalized(adatas: list[anndata.AnnData]|dict[str, anndata.AnnData]):
+def barcodes_canonicalized(
+    x: anndata.AnnData, y: anndata.AnnData, batch_key: str
+) -> bool:
+    if not obs_names_unique(x) and not obs_names_unique(y):
+        raise ValueError(
+            "Non-unique barcodes in input x and y. Make obs_names_unique in atleast one anndata before running again."
+        )
+    x_mapper = get_barcode_mapper(x, batch_key=batch_key)
+    y_mapper = get_barcode_mapper(y, batch_key=batch_key)
+    xy_mapper = pd.merge(
+        x_mapper,
+        y_mapper,
+        how="inner",
+        on=["original_barcode", batch_key],
+        suffixes=("_x", "_y"),
+    )
+    if (
+        xy_mapper.shape[0] > x_mapper.shape[0]
+        and xy_mapper.shape[0] > y_mapper.shape[0]
+    ):
+        raise ValueError("Merge is larger than either original frame.")
+    if xy_mapper["unique_barcode_x"].equals(xy_mapper["unique_barcode_y"]):
+        return True
+    else:
+        return False
+
+
+# %%
+def into_mudata(adatas: dict[str, anndata.AnnData]):
+    pass
