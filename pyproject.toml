@@ -15,6 +15,10 @@ scanpy = "^1.10.1"
 scirpy = "^0.16.1"
 numpy = "^1.26.4"
 pandas = "^2.2.2"
+biopython = "^1.84"
+
+[tool.poetry.group.gpu]
+optional = true
 
 [tool.poetry.group.gpu.dependencies]
 scvi-tools = "^1.1.2"
