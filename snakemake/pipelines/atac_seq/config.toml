@@ -1,0 +1,14 @@
+[core]
+fastq_files="/atac_data/raw/fastq/atac"
+source="/atac_data/analysis/atac/pipeline/source"
+sink="/scratch"
+genome_reference="/atac_data/ref/bowtie2/hg38/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+blacklists = ["/atac_data/ref/bowtie2/hg38/hg38-blacklist.v2.bed"]
+sample_key="(^[^_]+).+[_](R[0-9])[_].+[.]fastq[.]gz"
+mtchrom="MT"
+
+[resources]
+threads=8
+mem=30000
+diskspace=32000
+partition="m6id"
