@@ -17,6 +17,7 @@ numpy = "^1.26.4"
 pandas = "^2.2.2"
 muon = "^0.1.6"
 biopython = "^1.84"
+pysam = "^0.22.1"
 
 [tool.poetry.group.gpu]
 optional = true
