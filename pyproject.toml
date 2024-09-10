@@ -18,13 +18,9 @@ pandas = "^2.2.2"
 muon = "^0.1.6"
 biopython = "^1.84"
 pysam = "^0.22.1"
-
-[tool.poetry.group.gpu]
-optional = true
-
-[tool.poetry.group.gpu.dependencies]
-scvi-tools = "^1.1.2"
-torch = "^2.3.0"
+requests = "^2.32.3"
+requests-html = "^0.10.0"
+lxml = {extras = ["html-clean"], version = "^5.3.0"}
 
 [tool.poetry.group.git.dependencies]
 airr = {git = "https://github.com/airr-community/airr-standards.git", rev = "master", subdirectory = "lang/python"}
@@ -35,6 +31,19 @@ isort = "^5.13.2"
 debugpy = "^1.8.2"
 pytest = "^8.2.2"
 pytest-cov = "^5.0.0"
+
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+scvi-tools = "^1.1.2"
+torch = "^2.3.0"
+
+[tool.poetry.group.book]
+optional = true
+
+[tool.poetry.group.book.dependencies]
+jupyter-book = "^1.0.2"
 
 [build-system]
 requires = ["poetry-core"]
