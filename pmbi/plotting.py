@@ -27,6 +27,7 @@ class Paneler(object):
         layout="tight",
         format="tiff",
         dpi=400,
+        **kwargs,
     ):
         Paneler.theme()
         self.nrow = nrow
@@ -36,6 +37,7 @@ class Paneler(object):
         self.layout = layout
         self.format = format
         self.dpi = dpi
+        self.subplots_kwargs = kwargs
         self.fig, self.axs = self._new_fig()
         self.panel_idx = 0
         self.image_num = 1
@@ -43,7 +45,7 @@ class Paneler(object):
 
     def _new_fig(self):
         return plt.subplots(
-            nrows=self.nrow, ncols=self.ncol, figsize=self.figsize, layout=self.layout
+            nrows=self.nrow, ncols=self.ncol, figsize=self.figsize, layout=self.layout, **self.subplots_kwargs
         )
 
     @staticmethod
