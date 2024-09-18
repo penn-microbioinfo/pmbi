@@ -38,11 +38,11 @@ optional = true
 scvi-tools = "^1.1.2"
 torch = "^2.3.0"
 
-[tool.poetry.group.book]
+[tool.poetry.group.publish]
 optional = true
 
-[tool.poetry.group.book.dependencies]
-jupyter-book = "^1.0.2"
+[tool.poetry.group.publish.dependencies]
+jupyter = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core"]
