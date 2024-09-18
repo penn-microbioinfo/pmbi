@@ -14,8 +14,7 @@ from requests_html import HTMLSession
 
 # %%
 class Filter(object):
-    def __init__(w
-                 self, op: str, content: list|dict):
+    def __init__(self, op: str, content: list|dict):
         self.op = op
         self.content = content
         self._check_types()
@@ -189,6 +188,7 @@ for idx,row in enumerate(seqdf_filt.itertuples()):
         ac = AirrCell.empty_chain_dict()
         ac.update({
             "locus": row.locus,
+            "junction": row.junction,
             "junction_aa": row.junction_aa,
             "v_call": row.v_call,
             "j_call": row.j_call,
@@ -212,7 +212,7 @@ adata = from_airr_cells(cells)
 # none2nan_obs = adata.obs.apply(lambda col: [np.nan if val is None else val for val in col])
 adata.obs = adata.obs.drop("_33", axis = 1)
 ir.pp.index_chains(adata)
-adata.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecptor.h5ad")
+adata.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_ireceptor.h5ad")
 
 ########################################
 # %% Drop sequences that don't have any productive chains before running ir_dist
@@ -228,8 +228,11 @@ adata_prod = adata[keep,:].copy()
 ########################################
 ir.pp.ir_dist(adata_prod, n_jobs = 14, sequence = "aa", key_added = "hpap_ireceptor_self_ident")
 ir.pp.ir_dist(adata_prod, n_jobs = 14, sequence = "aa", key_added = "hpap_ireceptor_self_levenshtein", metric = "levenshtein")
-adata_prod.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecptor_filt_dist.h5ad")
+adata_prod.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecpetor_filt_dist.h5ad")
 
+# %%
+adata_prod = anndata.read_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_ireceptor_filt_dist.h5ad")
+adata_prod
 
 vdjdb = ir.datasets.vdjdb()
 vdjdb.obsm["chain_indices"][:,"VDJ"]
