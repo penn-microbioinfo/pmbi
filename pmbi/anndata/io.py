@@ -1,4 +1,5 @@
 import logging
+import pickle
 import os
 
 import anndata
@@ -146,4 +147,26 @@ def write_h5ad_multi(
     for key, adata in adatas.items():
         adata.write_h5ad(Path(os.path.join(outdir, f"{key}_{suffix}.h5ad")))
 
+def pickle_piece(adata: anndata.AnnData,
+                 outer_key: str,
+                 inner_key: str,
+                 output_dir: str
+                 ) -> None:
+    pkl_path = os.path.join(output_dir, f"{outer_key}__{inner_key}.pkl")
+    with open(pkl_path, 'wb') as pkl_f:
+        pickle.dump(getattr(adata, outer_key)[inner_key], pkl_f)
+
+def pickle_pieces(adata: anndata.AnnData, 
+                  pickle_what: dict[str,list[str]],
+                  output_dir: str,
+                  ) -> None:
+    for outer_key,inner_key_list in pickle_what.items():
+        for inner_key in inner_key_list:
+            pickle_piece(adata=adata, outer_key=outer_key, inner_key=inner_key, output_dir=output_dir)
+
+def load_pickle_piece(path: str) -> object:
+#"alignment_nt_annot.csv.gz" %%
+    with open(path, 'rb') as pkl_f:
+        piece = pickle.load(pkl_f)
+    return piece
 
