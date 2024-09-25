@@ -1,15 +1,19 @@
 import logging
-import pickle
 import os
+import pickle
+from pathlib import Path
 
 import anndata
 import numpy
+import pandas as pd
 import scanpy as sc
 import scipy.io
-from pathlib import Path
-from pmbi.io import get_key_default
+from scirpy.io._convert_anndata import from_airr_cells
+from scirpy.io._datastructures import AirrCell
 
 import pmbi.anndata.get
+from pmbi.airr.schema import calls_to_imgt_locus_names, get_airr_schema
+from pmbi.io import get_key_default
 
 
 def to_mtx(
@@ -25,7 +29,8 @@ def to_mtx(
     adata.obs.to_csv(path_or_buf=obs_out, sep=",", index_label="barcode")
     adata.var.to_csv(path_or_buf=var_out, sep=",", index_label="feature")
 
-def write_counts(adata: anndata.AnnData, file: str, sep = ',', layer: str|None = None):
+
+def write_counts(adata: anndata.AnnData, file: str, sep=",", layer: str | None = None):
     if layer is None:
         df = pd.DataFrame(adata.X.toarray())
 
@@ -35,7 +40,7 @@ def write_counts(adata: anndata.AnnData, file: str, sep = ',', layer: str|None =
     df.index = adata.obs_names
     df.columns = adata.var_names
 
-    df.to_csv(file, sep = sep)
+    df.to_csv(file, sep=sep)
 
 
 def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
@@ -147,26 +152,54 @@ def write_h5ad_multi(
     for key, adata in adatas.items():
         adata.write_h5ad(Path(os.path.join(outdir, f"{key}_{suffix}.h5ad")))
 
-def pickle_piece(adata: anndata.AnnData,
-                 outer_key: str,
-                 inner_key: str,
-                 output_dir: str
-                 ) -> None:
+
+def pickle_piece(
+    adata: anndata.AnnData, outer_key: str, inner_key: str, output_dir: str
+) -> None:
     pkl_path = os.path.join(output_dir, f"{outer_key}__{inner_key}.pkl")
-    with open(pkl_path, 'wb') as pkl_f:
+    with open(pkl_path, "wb") as pkl_f:
         pickle.dump(getattr(adata, outer_key)[inner_key], pkl_f)
 
-def pickle_pieces(adata: anndata.AnnData, 
-                  pickle_what: dict[str,list[str]],
-                  output_dir: str,
-                  ) -> None:
-    for outer_key,inner_key_list in pickle_what.items():
+
+def pickle_pieces(
+    adata: anndata.AnnData,
+    pickle_what: dict[str, list[str]],
+    output_dir: str,
+) -> None:
+    for outer_key, inner_key_list in pickle_what.items():
         for inner_key in inner_key_list:
-            pickle_piece(adata=adata, outer_key=outer_key, inner_key=inner_key, output_dir=output_dir)
+            pickle_piece(
+                adata=adata,
+                outer_key=outer_key,
+                inner_key=inner_key,
+                output_dir=output_dir,
+            )
+
 
 def load_pickle_piece(path: str) -> object:
-#"alignment_nt_annot.csv.gz" %%
-    with open(path, 'rb') as pkl_f:
+    # "alignment_nt_annot.csv.gz" %%
+    with open(path, "rb") as pkl_f:
         piece = pickle.load(pkl_f)
     return piece
 
+
+def from_airr(
+    airr_df: pd.DataFrame, schema: str, sample_key: str | None = None
+) -> anndata.AnnData:
+    cells = []
+    for row in airr_df.itertuples():
+        cell = AirrCell(cell_id=str(row.sequence_id))
+        ac = AirrCell.empty_chain_dict()
+        ac["locus"] = calls_to_imgt_locus_names([row.v_call, row.d_call, row.j_call])
+        ac.update(
+            {
+                req_field: getattr(row, req_field)
+                for req_field in get_airr_schema(schema=schema)["required"]
+            }
+        )
+        cell.add_chain(ac)
+        cells.append(cell)
+    adata = from_airr_cells(cells)
+    if sample_key is not None:
+        adata.obs["sample_key"] = sample_key
+    return adata
