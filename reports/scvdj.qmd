@@ -1,0 +1,50 @@
+---
+title: "scvdj report"
+format:
+  html:
+    code-fold: true
+jupyter: python3
+---
+
+```{python}
+import muon
+import pandas as pd
+import seaborn as sns
+import os
+
+PROJ="/home/ubuntu/projmnt/betts/coculture"
+```
+
+The first comparison of the experimental data against the reference was based on the levenshtein distance 
+between the underlying nucleotide sequences, with a cutoff of distance = 2. This cutoff should be very 
+conservative in the context of nucleotide sequences, which are 3x the length of their corresponding
+aa sequences.
+
+```{python}
+# mdata = muon.read_h5mu("/home/ubuntu/projmnt/betts/coculture/rna_adt_vdj_scvi_integrated.h5mu")
+nt_annot = pd.read_csv(os.path.join(PROJ, "ir_query_annotate/levenshtein_nt_annot.csv"),  index_col = 0)
+```
+
+{{< pagebreak >}}
+```{python}
+#| label: Figure 1 
+#| fig-cap: "Bar plot showing the number of query junction nucleotide sequences that match those in the reference."
+
+ref_matches = nt_annot.sequence_id.value_counts()
+len(ref_matches.index.unique())
+ref_match_counts = pd.DataFrame(pd.cut(ref_matches, bins = [0,1,5,10,100,1000]).value_counts()).reset_index(names = ["bin"])
+sns.barplot(data = ref_match_counts, x="bin", y = "count")
+```
+
+{{< pagebreak >}}
+```{python}
+#| label: Figure 2
+#| fig-cap: "Bar plot showing the number of reference junction nucleotide sequences that are matched by thoes in the query."
+
+cell_matches = nt_annot.index.value_counts()
+cell_match_counts = pd.DataFrame(pd.cut(cell_matches, bins = [0,1,5,10,100,1000]).value_counts()).reset_index(names = ["bin"])
+len(cell_matches.index.unique())
+sns.barplot(data = cell_match_counts, x="bin", y = "count")
+
+```
+

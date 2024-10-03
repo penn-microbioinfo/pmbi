@@ -1,11 +1,8 @@
 import os
 from pathlib import Path
 
-import anndata
-import mudata
 import numpy as np
 import pandas as pd
-import scanpy as sc
 
 
 def get_key_default(path: Path) -> str:
@@ -24,6 +21,7 @@ def get_key_default(path: Path) -> str:
     """
 
     return path.name.replace(f"{path.suffix}", "").split("_")[0]
+
 
 def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
     """
@@ -53,4 +51,3 @@ def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
         df = df.astype(np.float64)
 
         return df
-

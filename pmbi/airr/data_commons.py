@@ -11,11 +11,9 @@ import pmbi.anndata.io
 
 from requests_html import HTMLSession
 
-
 # %%
 class Filter(object):
-    def __init__(w
-                 self, op: str, content: list|dict):
+    def __init__(self, op: str, content: list|dict):
         self.op = op
         self.content = content
         self._check_types()
@@ -66,10 +64,11 @@ class PostData(object):
 
 # %%
 class Response(object):
-    def __init__(self, query, info, schema):
+    def __init__(self, query, info, schema, text):
         self.query = query
         self.info = info
         self.schema = schema
+        self.text = text
 
 # %%
 def request(url: str, data: PostData) -> Response:
@@ -78,9 +77,9 @@ def request(url: str, data: PostData) -> Response:
     session.close()
     try: 
         text = json.loads(response.text)
-        schema_key = os.path.split("url")[1].capitalize()
+        schema_key = os.path.split(url)[1].capitalize() #The last piece of the url, in sentence case should be the scheme key
         if schema_key in text:
-            return Response(query = data, info = text["Info"], schema = schema_key)
+            return Response(query = data, info = text["Info"], schema = schema_key, text = text)
         else: 
             raise ValueError(f"Expected schema_key not present in response text: {schema_key}")
     except json.JSONDecodeError as e:
@@ -114,14 +113,13 @@ data = PostData(
     size=None,
     fields=["repertoire_id", "sample.sample_id"],
 )
-data.to_json()
 url = "https://hpap.ireceptor.org/airr/v1/repertoire"
+data.to_json()
 response = request(url, data)
-repids = [rec["repertoire_id"] for rec in response["Repertoire"]]
+repids = [rec["repertoire_id"] for rec in response.text["Repertoire"]]
 
-_
 ########################################
-# %% Get the rearrangement sequence data for these repertoire_ids
+# %% Get the sequence ids for these repertoire_ids
 ########################################
 url = "https://hpap.ireceptor.org/airr/v1/rearrangement"
 data = PostData(filters = [Filter(op = "in", content = {"field": "repertoire_id", "value": repids})], 
@@ -130,24 +128,13 @@ data = PostData(filters = [Filter(op = "in", content = {"field": "repertoire_id"
                 )
 data.to_json()
 response = request(url, data)
+response.text
 
-########################################
-# %%
-########################################
-url = "https://hpap.ireceptor.org/airr/v1/rearrangement"
-data = PostData(filters = [Filter(op = "in", content = {"field": "repertoire_id", "value": repids})], 
-                first_result = 0, 
-                size = None
-                )
-data.to_json()
-response = request(url, data)
-seqids = response
-seqids = [rec["sequence_id"] for rec in response["Rearrangement"]]
-type(seqids)
+seqids = [rec["sequence_id"] for rec in response.text["Rearrangement"]]
 seqids[1:10]
 
 ########################################
-# %%
+# %% Get the sequence data for these sequence_ids
 ########################################
 url = "https://hpap.ireceptor.org/airr/v1/rearrangement"
 all_seqid_resp = []
@@ -159,7 +146,7 @@ for chunk in np.array_split(range(0,len(seqids)), 10):
                     first_result = 0, 
                     size = None
                     )
-    all_seqid_resp.append(request(url, data)[schema])
+    all_seqid_resp.append(request(url, data).text[schema])
 
 all_seqid_resp = list(itertools.chain.from_iterable(all_seqid_resp))
 len(all_seqid_resp)
@@ -173,6 +160,8 @@ keep = np.where(seqdf.apply(lambda col: any([c is not None and c != "" for c in 
 seqdf_filt = seqdf.iloc[:,keep[0]]
 seqdf_filt.to_csv("/home/ubuntu/projmnt/betts/coculture/hpap_irecptor_seqid_response.csv", sep = ",", index = False)
 
+seqdf.columns[np.where([x in mixcr_airr.columns for x in seqdf.columns])].shape
+mixcr_airr
 ########################################
 # %% Convert to AnnData
 ########################################
@@ -189,6 +178,7 @@ for idx,row in enumerate(seqdf_filt.itertuples()):
         ac = AirrCell.empty_chain_dict()
         ac.update({
             "locus": row.locus,
+            "junction": row.junction,
             "junction_aa": row.junction_aa,
             "v_call": row.v_call,
             "j_call": row.j_call,
@@ -212,7 +202,7 @@ adata = from_airr_cells(cells)
 # none2nan_obs = adata.obs.apply(lambda col: [np.nan if val is None else val for val in col])
 adata.obs = adata.obs.drop("_33", axis = 1)
 ir.pp.index_chains(adata)
-adata.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecptor.h5ad")
+adata.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_ireceptor.h5ad")
 
 ########################################
 # %% Drop sequences that don't have any productive chains before running ir_dist
@@ -228,8 +218,11 @@ adata_prod = adata[keep,:].copy()
 ########################################
 ir.pp.ir_dist(adata_prod, n_jobs = 14, sequence = "aa", key_added = "hpap_ireceptor_self_ident")
 ir.pp.ir_dist(adata_prod, n_jobs = 14, sequence = "aa", key_added = "hpap_ireceptor_self_levenshtein", metric = "levenshtein")
-adata_prod.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecptor_filt_dist.h5ad")
+adata_prod.write_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_irecpetor_filt_dist.h5ad")
 
+# %%
+adata_prod = anndata.read_h5ad("/home/ubuntu/projmnt/betts/coculture/hpap_ireceptor_filt_dist.h5ad")
+adata_prod
 
 vdjdb = ir.datasets.vdjdb()
 vdjdb.obsm["chain_indices"][:,"VDJ"]

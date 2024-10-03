@@ -1,0 +1,111 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "---\n",
+        "title: \"scvdj report\"\n",
+        "format:\n",
+        "  html:\n",
+        "    code-fold: true\n",
+        "jupyter: python3\n",
+        "---"
+      ],
+      "id": "ce3005c8"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "import muon\n",
+        "import pandas as pd\n",
+        "import seaborn as sns\n",
+        "import os\n",
+        "\n",
+        "PROJ=\"/home/ubuntu/projmnt/betts/coculture\""
+      ],
+      "id": "ead82d29",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "<!-- The first comparison of the experimental data against the reference was based on the levenshtein distance  -->\n",
+        "<!-- between the underlying nucleotide sequences, with a cutoff of distance = 2. This cutoff should be very  -->\n",
+        "<!-- conservative in the context of nucleotide sequences, which are 3x the length of their corresponding -->\n",
+        "<!-- aa sequences. -->\n"
+      ],
+      "id": "03831072"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "# mdata = muon.read_h5mu(\"/home/ubuntu/projmnt/betts/coculture/rna_adt_vdj_scvi_integrated.h5mu\")\n",
+        "nt_annot = pd.read_csv(os.path.join(PROJ, \"ir_query_annotate/levenshtein_nt_annot.csv\"),  index_col = 0)"
+      ],
+      "id": "ef62ff0b",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "{{< pagebreak >}}"
+      ],
+      "id": "cff9d588"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "#| label: Figure 1\n",
+        "#| fig-cap: Bar plot showing the number of query junction nucleotide sequences that match those in the reference.\n",
+        "\n",
+        "ref_matches = nt_annot.sequence_id.value_counts()\n",
+        "ref_match_counts = pd.DataFrame(pd.cut(ref_matches, bins = [0,1,5,10,100,1000]).value_counts()).reset_index(names = [\"bin\"])\n",
+        "sns.barplot(data = ref_match_counts, x=\"bin\", y = \"count\")"
+      ],
+      "id": "Figure-1",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "{{< pagebreak >}}"
+      ],
+      "id": "cd555029"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "#| label: Figure 2\n",
+        "#| fig-cap: Bar plot showing the number of reference junction nucleotide sequences that are matched by thoes in the query.\n",
+        "\n",
+        "cell_matches = nt_annot.index.value_counts()\n",
+        "cell_match_counts = pd.DataFrame(pd.cut(cell_matches, bins = [0,1,5,10,100,1000]).value_counts()).reset_index(names = [\"bin\"])\n",
+        "sns.barplot(data = cell_match_counts, x=\"bin\", y = \"count\")"
+      ],
+      "id": "Figure-2",
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "name": "python3",
+      "language": "python",
+      "display_name": "Python 3 (ipykernel)",
+      "path": "/usr/local/share/jupyter/kernels/python3"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
