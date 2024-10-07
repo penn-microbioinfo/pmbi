@@ -29,7 +29,9 @@ dependencies = [
     "joblib>=1.4.2",
     "requests>=2.32.3",
     "requests-html>=0.10.0",
-    "lxml[html-clean]>=5.3.0"
+    "lxml[html-clean]>=5.3.0",
+    "palettable>=3.3.3",
+    "airr@git+https://github.com/airr-community/airr-standards.git#egg=master#subdirectory=lang/python"
     ]
 
 [project.optional-dependencies]
@@ -47,7 +49,3 @@ dev = [
 publish = [
     "jupyter>=1.0.0"
     ]
-
-# [tool.poetry.group.git.dependencies]
-# airr = {git = "https://github.com/airr-community/airr-standards.git", rev = "master", subdirectory = "lang/python"}
-
