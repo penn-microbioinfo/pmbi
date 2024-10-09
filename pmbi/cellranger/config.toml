@@ -1,5 +1,0 @@
-[references]
-RNA = "x"
-ADT = "y"
-VDJ = "z"
-ATAC = "/cellranger-ref/refdata-cellranger-arc-mm10-2020-A-2.0.0"
