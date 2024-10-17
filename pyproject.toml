@@ -9,6 +9,9 @@ include = ["/src/pmbi",
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.basedpyright]
+typeCheckingMode = "standard"
+
 [project]
 name = "pmbi"
 version = "0.1.0"
@@ -54,3 +57,4 @@ dev = [
 publish = [
     "jupyter>=1.0.0"
     ]
+
