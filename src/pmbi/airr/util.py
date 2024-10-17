@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import scirpy as ir
+import scirpy.util
+import pmbi.util
 
 from pmbi.anndata.io import pickle_piece
 
@@ -22,18 +24,20 @@ def n_overlapping_junction_aa_identical(df1, df2, subject_key="donor"):
 
 
 # %%
-def n_unique_junction_aa(df1, df2, subject_key="donor", axis=0):
+def n_unique_junction_aa(
+    df1, df2, subject_key="donor", count_key="junction_aa", axis=0
+):
     matrix = []
     index = sorted(df1[subject_key].unique())
     columns = sorted(df2[subject_key].unique())
     matrix = pd.DataFrame(0, index=index, columns=columns)
     if axis == 0:
         for g1_member in index:
-            g1_total = df1[df1[subject_key] == g1_member].junction_aa.unique().shape[0]
+            g1_total = df1[df1[subject_key] == g1_member][count_key].unique().shape[0]
             matrix.loc[g1_member, :] = g1_total
     elif axis == 1:
         for g2_member in index:
-            g2_total = df2[df2[subject_key] == g2_member].junction_aa.unique().shape[0]
+            g2_total = df2[df2[subject_key] == g2_member][count_key].unique().shape[0]
             matrix.loc[g2_member, :] = g2_total
     else:
         raise pd.errors.IndexingError
@@ -53,3 +57,22 @@ def write_ir_dist(data, uns_key, output_dir, airr_mod="airr", airr_key="airr"):
 
 
 # %%
+def clonotypes_to_obs(data, uns_key, key_added, inner_key="cell_indices", airr_mod = "airr", airr_key="airr", inplace = True):
+    dh = scirpy.util.DataHandler(data, airr_mod=airr_mod, airr_key=airr_key)
+    cell_clonotypes = pmbi.util.invert_dict(dh.adata.uns[uns_key][inner_key])
+    cell_clonotypes.name = key_added
+    dh.adata.obs = pd.merge(dh.adata.obs, cell_clonotypes, how = "left", left_index = True, right_index=True)
+    if inplace:
+        return None
+    else:
+        return dh.data.copy()
+
+# %%
+def clonotype_sizes(data, obs_key, key_added, airr_mod = "airr", airr_key="airr", inplace = True): 
+    dh = scirpy.util.DataHandler(data, airr_mod=airr_mod, airr_key=airr_key)
+    clonotype_size=pd.Series(dh.adata.obs.groupby(obs_key).size(), name = key_added)
+    dh.adata.obs = pd.merge(dh.adata.obs, clonotype_size, how="left", left_on=obs_key, right_index=True)
+    if inplace:
+        return None
+    else:
+        return dh.data.copy()

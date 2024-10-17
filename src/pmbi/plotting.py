@@ -169,6 +169,12 @@ class Paneler(object):
 theme_specification = {
     "axislabels": {"fontsize": 10.0},
     "ticklabels": {"fontsize": 8.0},
+    "title": {
+        "text": "",
+        "fontdict": {
+            "fontsize": 10.0,
+            },
+        },
 }
 
 
@@ -184,6 +190,7 @@ class Theme(object):
         return getattr(self.inner, name)
 
     def apply_to(self, ax):
+        ax.set_title(self.inner.title.text, fontdict = self.inner.title.fontdict)
         xlabel, ylabel = (ax.get_xlabel(), ax.get_ylabel())
         ax.set_xlabel(xlabel, fontsize=self.inner.axislabels.fontsize)
         ax.set_xlabel(ylabel, fontsize=self.inner.axislabels.fontsize)

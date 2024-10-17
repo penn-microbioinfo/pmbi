@@ -285,9 +285,9 @@ def feature_expression(
 ) -> scipy.sparse._csr.csr_matrix:
     featidx = np.where([x == feature for x in adata.var_names])[0]
     if layer is None:
-        return adata.X[:, featidx]
+        return adata.X[:, featidx].toarray()
     else:
-        return adata.layers[layer][:, featidx]
+        return adata.layers[layer][:, featidx].toarray()
 
 
 # %%
