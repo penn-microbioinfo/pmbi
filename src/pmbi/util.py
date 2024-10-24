@@ -21,11 +21,15 @@ def invert_dict(d, return_type="series") -> pd.Series:
         raise NotImplementedError(f"Unimplemented return_type: {return_type}")
 
 
-def unpack_nested_dict(d, keys=[]):
+def unpack_nested_dict(d, keys=[], depth:int = 0, stop_at:int|None = None):
     ele = []
     for k, v in d.items():
-        if isinstance(v, dict):
-            ele.extend(unpack_nested_dict(v, keys + [k]))
+        if depth is not None and depth<=stop_at:
+            if isinstance(v, dict):
+                depth += 1
+                ele.extend(unpack_nested_dict(v, keys + [k], depth, stop_at))
+            else:
+                ele.append(tuple(keys + [k, v]))
         else:
             ele.append(tuple(keys + [k, v]))
     return tuple(ele)
