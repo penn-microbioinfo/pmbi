@@ -1,4 +1,5 @@
 import gc
+import copy
 from functools import wraps
 
 import matplotlib as mpl
@@ -166,8 +167,14 @@ class Paneler(object):
             )
 
 # %%
-theme_specification = {
-    "axislabels": {"fontsize": 10.0},
+THEME_SPEC = {
+    "axislabels": {
+        "fontsize": 10.0,
+        "text": {
+            "x": "x-axis",
+            "y": "y-axis",
+            },
+        },
     "ticklabels": {"fontsize": 8.0},
     "title": {
         "text": "",
@@ -177,23 +184,58 @@ theme_specification = {
         },
 }
 
-
 class Theme(object):
     def __init__(
-        self
+        self,
+        theme_specification = THEME_SPEC,
+        **kwargs
     ):
+        theme_specification = copy.deepcopy(theme_specification)
+        theme_specification.update(theme_specification)
+
+        THEME_SPEC_KWARGS_MAP = {
+                "xlab": "axislabels.text.x",
+                "ylab": "axislabels.text.y",
+                "title": "title",
+                }
+
         self.inner = munch.Munch.fromDict(theme_specification)
+        
+        # for kw,arg in kwargs.items():
+        #     attr_path = THEME_SPEC_KWARGS_MAP[kw].split(".")
+        #     print(kw, arg, attr_path)
+        #     curr = self.inner
+        #     for i,attr in enumerate(attr_path): 
+        #         print(attr)
+        #         if attr in dir(curr):
+        #             if i < len(attr_path):
+        #                 curr = getattr(curr, attr)
+        #             else:
+        #                 setattr(curr, attr, arg)
+        #         else:
+        #             raise AttributeError
 
     def __getattr__(
         self, name
     ):  # Only called if default attribute access fails with AttributeError
         return getattr(self.inner, name)
 
+    def xlab(self, label):
+        self.inner.axislabels.text.x = label
+        return self
+
+    def ylab(self, label):
+        self.inner.axislabels.text.y = label
+        return self
+
+    def title(self, label):
+        self.inner.title.text = label
+        return self
+
     def apply_to(self, ax):
         ax.set_title(self.inner.title.text, fontdict = self.inner.title.fontdict)
-        xlabel, ylabel = (ax.get_xlabel(), ax.get_ylabel())
-        ax.set_xlabel(xlabel, fontsize=self.inner.axislabels.fontsize)
-        ax.set_xlabel(ylabel, fontsize=self.inner.axislabels.fontsize)
+        ax.set_xlabel(self.inner.axislabels.text.x, fontsize=self.inner.axislabels.fontsize)
+        ax.set_ylabel(self.inner.axislabels.text.y, fontsize=self.inner.axislabels.fontsize)
         xticklabels, yticklabels = (ax.get_xticklabels(), ax.get_yticklabels())
         ax.set_xticklabels(xticklabels, fontsize=self.inner.ticklabels.fontsize)
         ax.set_yticklabels(yticklabels, fontsize=self.inner.ticklabels.fontsize)

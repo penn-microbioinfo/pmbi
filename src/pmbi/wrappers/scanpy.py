@@ -63,7 +63,7 @@ def combine_adatas(adatas: dict) -> anndata.AnnData:
 
 
 def calc_umi_per_bc(adata: anndata.AnnData) -> pd.DataFrame:
-    umi_per_bc = adata.X.sum(axis=1)[:, 0].A1
+    umi_per_bc = adata.X.sum(axis=1)[:, 0]
     umi_per_bc.sort()
     umi_per_bc = pd.DataFrame(
         {
