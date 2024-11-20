@@ -1,4 +1,5 @@
 import gc
+import os
 from functools import wraps
 
 import matplotlib as mpl
@@ -30,10 +31,10 @@ class Paneler(object):
         self,
         nrow,
         ncol,
-        output_prefix=None,  # Only meaningful if intending to save anything to file
         figsize=(3, 3),
-        layout="tight",
         format="tiff",
+        output_prefix=None,  # Only meaningful if intending to save anything to file
+        layout="tight",
         dpi=400,
         **kwargs,
     ):
@@ -142,7 +143,7 @@ class Paneler(object):
     def subplots_adjust(self, **kwargs):
         self.fig.subplots_adjust(**kwargs)
 
-    def _savefig(self, filename: str):
+    def _savefig(self, filename: os.PathLike):
         self.subplots_adjust(hspace=0.5, wspace=0.5)
         self.fig.savefig(filename, bbox_inches="tight")
         plt.close(self.fig)
@@ -190,7 +191,7 @@ class Theme(object):
         return getattr(self.inner, name)
 
     def apply_to(self, ax):
-        ax.set_title(self.inner.title.text, fontdict = self.inner.title.fontdict)
+        ax.set_title(self.inner.title.text, **self.inner.title.fontdict)
         xlabel, ylabel = (ax.get_xlabel(), ax.get_ylabel())
         ax.set_xlabel(xlabel, fontsize=self.inner.axislabels.fontsize)
         ax.set_xlabel(ylabel, fontsize=self.inner.axislabels.fontsize)

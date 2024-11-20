@@ -1,3 +1,11 @@
+[metadata.colnames]
+sample_id = "Experiment_Name"
+donor_id = "DonorID"
+modality = "Library_Type"
+chip_well = "Chip_Well"
+index_plate = "Index_Plate"
+well = "Well"
+
 [references]
 RNA = "x"
 ADT = "y"

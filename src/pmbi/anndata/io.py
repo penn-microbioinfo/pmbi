@@ -1,4 +1,5 @@
 import logging
+import h5py
 import os
 import pickle
 from pathlib import Path
@@ -8,6 +9,7 @@ import numpy
 import pandas as pd
 import scanpy as sc
 import scipy.io
+import scipy.sparse
 from scirpy.io._convert_anndata import from_airr_cells
 from scirpy.io._datastructures import AirrCell
 
@@ -16,18 +18,53 @@ from pmbi.airr.schema import calls_to_imgt_locus_names, get_airr_schema
 from pmbi.io import get_key_default
 
 
-def to_mtx(
-    adata: anndata.AnnData, output_prefix: str, layer: str | None = None
+def write_mtx(
+    adata: anndata.AnnData, output_dir: os.PathLike, layer: str | None = None, write_obs = True, write_var = True
 ) -> None:
-    counts_out = f"{output_prefix}_counts.mtx"
-    obs_out = f"{output_prefix}_obs.csv"
-    var_out = f"{output_prefix}_var.csv"
-    logging.warning("`pmbi.convert.adata_write_mtx` currently ignores `adata.uns`")
-    with open(counts_out, "wb") as cout:
-        scipy.io.mmwrite(cout, pmbi.anndata.get.counts(adata, layer=layer))
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
+        output_dir.mkdir(parents = True, exist_ok = False) # Will raies FileExistsError if exists
+    obs_out = output_dir.joinpath("obs.csv")
+    var_out = output_dir.joinpath("var.csv")
+    mat = pmbi.anndata.get.counts(adata, layer=layer)
+    if scipy.sparse.issparse(mat):
+        counts_out = output_dir.joinpath("counts.mtx")
+        with open(counts_out, "wb") as cout:
+            scipy.io.mmwrite(cout, mat)
+    else:
+        counts_out = output_dir.joinpath("counts.h5")
+        h5f = h5py.File(counts_out, 'w')
+        h5f.create_dataset("counts", data=mat)
+        h5f.close()
 
-    adata.obs.to_csv(path_or_buf=obs_out, sep=",", index_label="barcode")
-    adata.var.to_csv(path_or_buf=var_out, sep=",", index_label="feature")
+
+    if write_obs:
+        adata.obs.to_csv(path_or_buf=obs_out, sep=",", index_label="barcode")
+
+    if write_var:
+        adata.var.to_csv(path_or_buf=var_out, sep=",", index_label="feature")
+
+def export(
+    adata: anndata.AnnData, output_dir: os.PathLike
+    ):
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
+        output_dir.mkdir(parents = True, exist_ok = False) # Will raies FileExistsError if exists
+
+    # Write count mtx from anndata.X
+    write_mtx(adata, output_dir)
+
+    # Wrtie out layers as mtx
+    layers_out = output_dir.joinpath("layers")
+    layers_out.mkdir()
+    for layer in adata.layers:
+        write_mtx(adata, output_dir = layers_out.joinpath(layer), layer=layer, write_obs=False, write_var=False)
+
+    # Wrtie out obsm items into on h5 file
+    h5f = h5py.File(output_dir.joinpath("obsm.h5"), 'w')
+    for key,value in adata.obsm.items():
+        h5f.create_dataset(key, data=value)
+    h5f.close()
 
 
 def write_counts(adata: anndata.AnnData, file: str, sep=",", layer: str | None = None):
@@ -154,7 +191,7 @@ def write_h5ad_multi(
 
 
 def pickle_piece(
-    adata: anndata.AnnData, outer_key: str, inner_key: str, output_dir: str
+    adata: anndata.AnnData, outer_key: str, inner_key: str, output_dir: os.PathLike
 ) -> None:
     pkl_path = os.path.join(output_dir, f"{outer_key}__{inner_key}.pkl")
     with open(pkl_path, "wb") as pkl_f:
@@ -164,7 +201,7 @@ def pickle_piece(
 def pickle_pieces(
     adata: anndata.AnnData,
     pickle_what: dict[str, list[str]],
-    output_dir: str,
+    output_dir: os.PathLike,
 ) -> None:
     for outer_key, inner_key_list in pickle_what.items():
         for inner_key in inner_key_list:
@@ -176,7 +213,7 @@ def pickle_pieces(
             )
 
 
-def load_pickle_piece(path: str) -> object:
+def load_pickle_piece(path: os.PathLike) -> object:
     # "alignment_nt_annot.csv.gz" %%
     with open(path, "rb") as pkl_f:
         piece = pickle.load(pkl_f)
@@ -187,7 +224,9 @@ def from_airr(
     airr_df: pd.DataFrame, schema: str, sample_key: str | None = None
 ) -> anndata.AnnData:
     cells = []
-    airr_df["productive"] =  [False if p.upper() == "F" else True for p in airr_df["productive"]]
+    airr_df["productive"] = [
+        False if p.upper() == "F" else True for p in airr_df["productive"]
+    ]
     for row in airr_df.itertuples():
         cell = AirrCell(cell_id=str(row.sequence_id))
         ac = AirrCell.empty_chain_dict()
