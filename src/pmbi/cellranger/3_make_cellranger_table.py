@@ -41,9 +41,11 @@ accepted_modalities = {
 
 # %% CHUNK: Handler def {{{
 class Handler(object):
-    def __init__(self, path, pattern="[_]R[0-9][_].+[.]fastq[.]gz$", backend=None):
+    def __init__(self, path, working_dir, pattern="[_]R[0-9][_].+[.]fastq[.]gz$", backend=None):
         self.filelist = []
         self.s3_pattern = "^s3[:][/]{2}"
+        self.working_dir = working_dir
+        self.table: pd.DataFrame = pd.DataFrame()
         if backend is None:
             if re.search(self.s3_pattern, path):
                 self.backend = "s3"
@@ -54,6 +56,7 @@ class Handler(object):
         else:
             raise NotImplementedError
         self._filter_filelist(pattern)
+        self._make_table()
 
     def _filter_filelist(self, pattern):
         filtered = []
@@ -63,10 +66,43 @@ class Handler(object):
                 filtered.append(f)
         self.filelist = filtered
 
-    def files(self):
+    def _files(self):
         for f in self.filelist:
             yield f
 
+    def _make_table(self):
+        ldict = []
+        for f in self._files():
+            fb = os.path.basename(f)
+            ldict.append(
+                {
+                    "sample": get_substring(
+                        string=fb, pattern=config.filename_patterns.sample
+                    ),
+                    "modality": get_modality_from_string(
+                        string=fb,
+                        pattern=config.filename_patterns.modality,
+                        accepted_modalities=accepted_modalities,
+                    ),
+                    "technical_rep": get_substring(
+                        string=fb, pattern=config.filename_patterns.technical_rep
+                    ),
+                    "read_number": get_substring(
+                        string=fb, pattern=config.filename_patterns.read_number
+                    ),
+                    "read_filename": fb,
+                    "read_path": f,
+                    "read_dir": os.path.split(f)[0],
+                    "backend": self.backend,
+                }
+            )
+        df = pd.DataFrame(ldict)
+        df = df.sort_values(["read_filename", "modality", "read_number"])
+        self.table = df
+        df.to_csv(os.path.join(self.working_dir, "Handler_table.tsv"), sep="\t", index=False)
+
+    def _sync_files(self):
+        pass
 
 # }}}
 
@@ -93,11 +129,28 @@ class Command(object):
         self.sample_config = sample_config
         self.config = config
         self.inner = None
+        self.subdirs = {
+            "fastq": {
+                "sub1": {
+                    "sub2": {},
+                    },
+                },
+            "outs_archive": {},
+            "cellranger_wd": {},
+            }
+        self.wd_tree = {self.sample_config.sample: self.subdirs}
     def _gen(self):
         csv = f"./{self.sample_config.sample}_config.csv"
         self.sample_config.write(output = csv)
         if self.backend == "local":
             self.inner = ["cellranger", "multi", "--id", self.sample_config.sample, "--csv", csv]
+    def _make_wd_tree(self, wd_tree, leading = []):
+        for k,v in wd_tree.items():
+            os.mkdir('/'.join(leading+[k]))
+            self._make_wd_tree(v, leading+[k])
+    def run(self):
+        pass
+        
 
 
 
@@ -136,8 +189,8 @@ class SampleConfig(object):
 
 # %% CHUNK: Run def {{{
 class Run(object):
-    def __init__(self, table: pd.DataFrame, config: munch.Munch):
-        self.table = table
+    def __init__(self, handler: Handler, config: munch.Munch):
+        self.handler = handler
         self.config = config
         self.samples = {}
         self.modality_to_cr_feature_type = {
@@ -157,7 +210,7 @@ class Run(object):
 
     def _populate(self):
         cr_config = (
-            self.table[["sample", "modality", "technical_rep", "read_dir"]]
+            self.handler.table[["sample", "modality", "technical_rep", "read_dir"]]
             .drop_duplicates()
             .reset_index(drop=True)
         )
@@ -187,6 +240,7 @@ class Run(object):
             ]
         ]
         cr_config = cr_config.rename(columns={"read_dir": "fastqs"})
+        print(cr_config)
         for sample_rep, modalities in cr_config.groupby(["sample_rep"]):
             sample_rep = sample_rep[0]
             sc = SampleConfig(sample=sample_rep, modalities=modalities, config=config)
@@ -242,37 +296,12 @@ if __name__ == "__main__":
     # }}}
 
     config = pmbi.config.import_config(args.config)
-    handler = Handler(args.path, pattern = config.filename_patterns.include)
-    ldict = []
-    for f in handler.files():
-        fb = os.path.basename(f)
-        ldict.append(
-            {
-                "sample": get_substring(
-                    string=fb, pattern=config.filename_patterns.sample
-                ),
-                "modality": get_modality_from_string(
-                    string=fb,
-                    pattern=config.filename_patterns.modality,
-                    accepted_modalities=accepted_modalities,
-                ),
-                "technical_rep": get_substring(
-                    string=fb, pattern=config.filename_patterns.technical_rep
-                ),
-                "read_number": get_substring(
-                    string=fb, pattern=config.filename_patterns.read_number
-                ),
-                "read_filename": fb,
-                "read_path": f,
-                "read_dir": os.path.split(f)[0],
-                "backend": handler.backend,
-            }
-        )
-    df = pd.DataFrame(ldict)
-    df = df.sort_values(["read_filename", "modality", "read_number"])
-    df.to_csv(args.output, sep="\t", index=False)
+    handler = Handler(path = args.path, working_dir = config.run.wd, pattern = config.filename_patterns.include)
 
-    run = Run(table=df, config=config)
-    for _samp,cmd in run.samples.items():
-        cmd._gen()
-        print(cmd.inner)
+    run = Run(handler=handler, config=config)
+    print(run.handler.table)
+    os.chdir(run.config.run.wd)
+    for samp,cmd in run.samples.items():
+        # cmd._gen()
+        cmd._make_wd_tree(cmd.wd_tree)
+        break

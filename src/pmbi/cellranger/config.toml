@@ -19,3 +19,6 @@ modality = "^HPAP[-][0-9]+[_][a-zA-Z]+[_]*[a-zA-Z0-9]*[_]([A-Z]+[-]*[A-Z]*)[_][0
 technical_rep = "^HPAP[-][0-9]+[_][a-zA-Z]+[_]*[a-zA-Z0-9]*[_][A-Z]+[-]*[A-Z]*[_]([0-9]+)[_].+[.]fastq[.]gz$"
 read_number = "[_](R[0-9])[_]"
 include = "HPAP-173[_]CC[_].+[_]R[0-9]+[_].+[.]fastq[.]gz"
+
+[run]
+wd = "/home/ubuntu/projmnt/betts-dl/287879594/"
