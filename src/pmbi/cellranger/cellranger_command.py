@@ -187,7 +187,6 @@ class CellrangerMultiomeExperiment(object):
     def __init__(self, ident):
         self.identifier = ident
         self.redundant = False
-        pass
 
     def modalities(self):
         return [v for v in self.__dict__.values() if isinstance(v, CellrangerModality)]

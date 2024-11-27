@@ -7,6 +7,7 @@ parser.add_argument("-c", "--csv", action = "store", help = "Path to the sample 
 parser.add_argument("-o", "--output_dir", action = "store", help = "Path to write out fastq files.")
 parser.add_argument("-t", "--threads", action = "store", help = "Threads for cellranger to use.")
 parser.add_argument("-m", "--memory", action = "store", help = "Memory (Gb) for cellranger to use.")
+# parser.add_argument("--backend", action = "store", default = "", help = "Backend to use for generating and running commands.")
 args = parser.parse_args()
 
 sg = SlurmScriptGenerator(

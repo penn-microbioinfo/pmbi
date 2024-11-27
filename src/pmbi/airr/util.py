@@ -3,9 +3,10 @@ import pandas as pd
 import scirpy as ir
 import scirpy.util
 import pmbi.util
+import awkward as ak
 
 from pmbi.anndata.io import pickle_piece
-
+from anndata import AnnData
 
 # %%
 def n_overlapping_junction_aa_identical(df1, df2, subject_key="donor"):
@@ -76,3 +77,12 @@ def clonotype_sizes(data, obs_key, key_added, airr_mod = "airr", airr_key="airr"
         return None
     else:
         return dh.data.copy()
+
+# %%
+def airr_locus_df(adata: AnnData, locus: str, columns: list[str]|None = None):
+    if columns is None:
+        return ak.to_dataframe(pull_airr_field_conditional(adata, lambda x: x.locus == locus)).reset_index()
+    else:
+        return ak.to_dataframe(pull_airr_field_conditional(adata, lambda x: x.locus == locus)[columns]).reset_index()
+
+# %%

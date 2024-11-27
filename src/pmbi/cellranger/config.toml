@@ -7,7 +7,15 @@ index_plate = "Index_Plate"
 well = "Well"
 
 [references]
-RNA = "x"
-ADT = "y"
-VDJ = "z"
+RNA = "/cellranger-ref/gex_ref"
+ADT = "/cellranger-ref/adt_ref"
+VDJ-T = "/cellranger-ref/vdj_ref"
+VDJ-B = "/cellranger-ref/vdj_ref"
 ATAC = "/cellranger-ref/refdata-cellranger-arc-mm10-2020-A-2.0.0"
+
+[filename_patterns]
+sample = "^(HPAP[-][0-9]+[_][a-zA-Z]+[_]*[a-zA-Z0-9]*)[_][A-Z]+[-]*[A-Z]*[_][0-9]+[_].+[.]fastq[.]gz$"
+modality = "^HPAP[-][0-9]+[_][a-zA-Z]+[_]*[a-zA-Z0-9]*[_]([A-Z]+[-]*[A-Z]*)[_][0-9]+[_].+[.]fastq[.]gz$"
+technical_rep = "^HPAP[-][0-9]+[_][a-zA-Z]+[_]*[a-zA-Z0-9]*[_][A-Z]+[-]*[A-Z]*[_]([0-9]+)[_].+[.]fastq[.]gz$"
+read_number = "[_](R[0-9])[_]"
+include = "HPAP-173[_]CC[_].+[_]R[0-9]+[_].+[.]fastq[.]gz"

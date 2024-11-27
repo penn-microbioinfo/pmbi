@@ -235,9 +235,9 @@ class Theme(object):
 
     def apply_to(self, ax):
         ax.set_title(self.inner.title.text, **self.inner.title.fontdict)
-        xlabel, ylabel = (ax.get_xlabel(), ax.get_ylabel())
-        ax.set_xlabel(xlabel, fontsize=self.inner.axislabels.fontsize)
-        ax.set_xlabel(ylabel, fontsize=self.inner.axislabels.fontsize)
+        # xlabel, ylabel = (ax.get_xlabel(), ax.get_ylabel())
+        ax.set_xlabel(self.inner.axislabels.text.x, fontsize=self.inner.axislabels.fontsize)
+        ax.set_ylabel(self.inner.axislabels.text.y, fontsize=self.inner.axislabels.fontsize)
         xticklabels, yticklabels = (ax.get_xticklabels(), ax.get_yticklabels())
         ax.set_xticklabels(xticklabels, fontsize=self.inner.ticklabels.fontsize)
         ax.set_yticklabels(yticklabels, fontsize=self.inner.ticklabels.fontsize)
