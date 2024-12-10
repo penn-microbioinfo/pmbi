@@ -42,6 +42,7 @@ dependencies = [
     "airr@git+https://github.com/airr-community/airr-standards.git#egg=master#subdirectory=lang/python",
     "munch>=4.0.0",
     "boto3>=1.35.66",
+    "openpyxl",
     ]
 
 [project.optional-dependencies]
