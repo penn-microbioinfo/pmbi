@@ -1,9 +1,41 @@
 from pprint import pprint
+import os
+import re
 
 import awkward as ak
 import pandas as pd
 import numpy as np
 
+# %% CHUNK: This function wraps re.search to pull a substring from a string - substring should be under capture group 1 {{{
+def get_substring(string: str, pattern: str) -> str:
+    s = re.search(pattern, os.path.basename(string))
+    if s is not None:
+        if len(s.groups()) > 1:
+            raise ValueError(
+                f"More than one matching substring for pattern `{pattern}` in string: {string}"
+            )
+        else:
+            return s.group(1)
+    else:
+        raise ValueError(
+            f"No match found for pattern `{pattern}` in string: `{string}`"
+        )
+# }}}
+
+# %% CHUNK: This function tries to pull an accepted modality from a an input string based on an input pattern {{{
+def get_modality_from_string(
+    string: str,
+    pattern: str,
+    accepted_modalities: dict[str, str],
+) -> str:
+    modality = get_substring(string, pattern)
+    if modality in accepted_modalities:
+        return accepted_modalities[modality]
+    else:
+        raise ValueError(f"Unexpected modality: `{modality}`")
+
+
+# }}}
 
 def ak_print(arr: ak.Array) -> None:
     pprint(ak.to_list(arr))

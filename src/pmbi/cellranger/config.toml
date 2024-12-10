@@ -5,12 +5,14 @@ modality = "Library_Type"
 chip_well = "Chip_Well"
 index_plate = "Index_Plate"
 well = "Well"
+library_name = "Library_Name"
+index_name = "10X_Index_Name"
 
 [references]
-RNA = "/cellranger-ref/gex_ref"
-ADT = "/cellranger-ref/adt_ref"
-VDJ-T = "/cellranger-ref/vdj_ref"
-VDJ-B = "/cellranger-ref/vdj_ref"
+RNA = "/home/ubuntu/projmnt/betts-dl/ref/refdata-gex-GRCh38-2020-A/"
+ADT = "/home/ubuntu/projmnt/betts-dl/ref/TotalSeq_C_Human_Universal_Cocktail_399905_Antibody_reference_UMI_counting.csv"
+VDJ-T = "/home/ubuntu/projmnt/betts-dl/ref/refdata-cellranger-vdj-GRCh38-alts-ensembl-7.1.0/" 
+VDJ-B = "/home/ubuntu/projmnt/betts-dl/ref/refdata-cellranger-vdj-GRCh38-alts-ensembl-7.1.0/" 
 ATAC = "/cellranger-ref/refdata-cellranger-arc-mm10-2020-A-2.0.0"
 
 [filename_patterns]
@@ -21,4 +23,11 @@ read_number = "[_](R[0-9])[_]"
 include = "HPAP-173[_]CC[_].+[_]R[0-9]+[_].+[.]fastq[.]gz"
 
 [run]
-wd = "/home/ubuntu/projmnt/betts-dl/287879594/"
+wd = "/home/ubuntu/projmnt/betts-dl/287879594/cellranger"
+n_jobs = 4
+
+[commands]
+cores = 8
+memory = 64
+
+[command_line]
