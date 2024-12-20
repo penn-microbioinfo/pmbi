@@ -43,6 +43,8 @@ dependencies = [
     "munch>=4.0.0",
     "boto3>=1.35.66",
     "openpyxl",
+    "tifffile",
+    "imagecodecs",
     ]
 
 [project.optional-dependencies]
