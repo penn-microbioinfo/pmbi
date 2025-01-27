@@ -101,18 +101,18 @@ class PslRow(object):
             # self.qSeq = qSeq
         else:
             raise ValueError(f"Invalid strand: {self.strand}")
-    def aln_len(self):
-        return {
-                "query": abs(self.qStart - self.qEnd),
-                "target": abs(self.tStart - self.tEnd),
-                }
-    def dist_from_target_ends(self):
-        target_range = TargetRange(start=0, end=self.tSize)
-        self.left_dist = self.tStart - target_range.start
-        self.right_dist = target_range.end - self.tEnd
-        return DistFromTargetEnds(left=self.left_dist, right=self.right_dist)
-    def show_target(self):
-        print('X'*(int(p.tStarts[0])-1) + '|'*(p.tSize-p.tStarts[0]))
+    # def aln_len(self):
+    #     return {
+    #             "query": abs(self.qStart - self.qEnd),
+    #             "target": abs(self.tStart - self.tEnd),
+    #             }
+    # def dist_from_target_ends(self):
+    #     target_range = TargetRange(start=0, end=self.tSize)
+    #     self.left_dist = self.tStart - target_range.start
+    #     self.right_dist = target_range.end - self.tEnd
+    #     return DistFromTargetEnds(left=self.left_dist, right=self.right_dist)
+    # def show_target(self):
+    #     print('X'*(int(p.tStarts[0])-1) + '|'*(p.tSize-p.tStarts[0]))
 
 # %%
 # DistFromTargetEnds = namedtuple('DistFromTargetEnds', ['left', 'right'])
@@ -138,7 +138,11 @@ class PslAln(object):
 fs = ["/stor/home/ka33933/work/Run3/blat/AES537_R1_blat.psl", "/stor/home/ka33933/work/Run3/blat/AES537_R2_blat.psl"]
 ldict = []
 with open(fs[0], 'r') as stream:
-    pa = PslAln.from_file(stream, target_seqs=tars, query_seqs=ques, n=1000)
+    pa = PslAln.from_file(stream, target_seqs=tars, query_seqs=ques)
+
+len(pa.rows)
+pa_test = [x for x in pa.rows if x.tName == "annotation-ENSXP-018414552:2449-2849"]
+len(pa_test)
 
 # %%
 # %% CHUNK: PslRowAln {{{
@@ -222,7 +226,7 @@ class PslRowAln(object):
         if len(q_leading) > len(t_leading):
             diff = len(q_leading)-len(t_leading)
             t_leading = " "*diff + t_leading
-            self.leading += t_leading
+            self.leading += len(t_leading)
         elif len(q_leading) < len(t_leading):
             diff = len(t_leading)-len(q_leading)
             q_leading = " "*diff + q_leading
@@ -250,11 +254,7 @@ class PslRowAln(object):
         t_repr = t_leading + tb_repr + t_trailing
         return (q_repr, t_repr)
     def show(self, chunksize=100):
-        chunksize = chunksize
-        blocks = self._blocks()
-        repr = self._aln_repr()
-        qseq = repr[0]
-        tseq = repr[1]
+        qseq,tseq = self._aln_repr()
         assert len(qseq) == len(tseq)
         breaks = list(range(0, len(tseq), chunksize))[0:len(tseq)]
         lines = []
@@ -342,11 +342,35 @@ class Block(object):
 # }}}
 
 # %%
+<<<<<<< HEAD
 i = 0
 len(pa.rows)
 for p in pa.rows:
     if p.tNumInsert == 0:
         i+=1
+=======
+rs = []
+seq = tars["annotation-ENSXP-018414552:2449-2849"]
+for idx,row in enumerate(pa_test):
+    aln = PslRowAln(row, ques, tars)
+    rs += list(aln.leading_query_pos()) + list(aln.trailing_query_pos())
+    if len(aln.leading_query_pos()) > 115:
+        print(idx)
+
+rs = np.array(rs)
+nbins=abs(min(rs))+max(rs)
+nbins
+hist = np.histogram(rs, bins=nbins)
+# %%
+
+
+a=PslRowAln(pa_test[113421], ques, tars)
+print(a.r)
+a.show()
+
+hist
+
+>>>>>>> 2e0029999e68121b368a4b34060db000b226a28e
 
 print(i)
 # %%
@@ -356,7 +380,13 @@ blks = aln._blocks()
 aln.qSize_gapped
 aln.tSize_gapped
 aln.show()
+<<<<<<< HEAD
 aln.trailing_query_pos()
+=======
+
+np.histogram(np.array(list(aln.trailing_query_pos())+list(aln.trailing_query_pos())))
+
+>>>>>>> 2e0029999e68121b368a4b34060db000b226a28e
 sum([b.t_insert_bases for b in aln._blocks()])
 sum([b.q_insert_bases for b in aln._blocks()])
 
