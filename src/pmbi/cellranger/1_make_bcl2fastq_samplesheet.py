@@ -1,9 +1,22 @@
 import argparse
+from pathlib import Path
 
 import pandas as pd
 
 from pmbi.config import import_config
 
+class SheetHandler(object):
+    def __init__(self, path: Path):
+        self.path = path
+        self.sheet = None
+        if self.path.suffix == ".xlsx":
+            self.sheet =  pd.read_excel(self.path) 
+        elif self.path.suffix.lower() == ".csv":
+            self.sheet = pd.read_csv(self.path, sep=",")
+        elif self.path.suffix.lower() == ".tsv":
+            self.sheet = pd.read_csv(self.path, sep="\t")
+        else:
+            raise IOError(f"Unrecognized sheet filename extension {self.path.suffix}")
 
 if __name__ == "__main__":
 # %% CHUNK: Argument parser {{{
@@ -94,8 +107,7 @@ if __name__ == "__main__":
 
 # %% CHUNK: Read in user metadata, filter {{{
     config = import_config(args.config)
-    metadata = pd.read_csv(args.metadata, sep=",")
-
+    metadata = SheetHandler(Path(args.metadata)).sheet
 # %% Filter rows of metadata based on args
     if args.filter_by is not None:
         if args.filter_vals is None:
