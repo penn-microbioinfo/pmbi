@@ -1,0 +1,12 @@
+[core]
+sample_pattern="(^[^_]+)[.]bam"
+ref="/home/amsesk/super1/cdiff_evo/ref/GCF_019880625.1_ASM1988062v1_genomic.fna"
+
+[opts]
+remove_intermediate_bams=true
+
+[resources]
+threads=8
+memory=24
+
+

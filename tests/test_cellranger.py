@@ -1,6 +1,6 @@
 import os
 
-iworking_dir="./",mport pandas as pd
+import pandas as pd
 import pytest
 
 from pmbi.config import import_config

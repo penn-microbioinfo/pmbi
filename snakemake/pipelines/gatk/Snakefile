@@ -1,0 +1,159 @@
+
+# %%
+import os
+import shutil
+import functools
+import itertools
+import pathlib
+from snakemake.io import InputFiles, OutputFiles
+from pmbi.snakemake.lib import *
+import pmbi.util
+from pmbi.plotting import Paneler
+import tomllib
+import re
+from munch import Munch
+import glob
+import pandas as pd
+import numpy as np
+
+# # %%
+# def get_fastqs(wildcards, parent, readnum):
+#     return sorted(glob.glob(os.path.join(parent, "{samp}*_R{rn}_*.fastq.gz".format(samp=wildcards.sample, rn=readnum))))
+#
+# # %%
+# def at_source(p, config):
+#     return os.path.join(config.core.source, p)
+
+
+# # %%
+# def check_config_paths(config):
+#     if not os.path.isfile(config.core.genome_reference):
+#         raise IOError(f"Genome reference file does not exist: {config.core.genome_reference}")
+#     for bl in config.core.blacklists:
+#         if not os.path.isfile(bl):
+#             raise IOError(f"Blacklist file does not exist: {bl}") 
+
+# %%
+config = toml_config(workflow.source_path("config.toml"))
+# check_config_paths(config)
+
+FILES = [x for x in os.listdir("bam/input") if x.endswith(".bam")]
+# RENAME_FILES = [re.sub(config.core.sample_key, r"\1_\2.fastq.gz", x) for x in FILES]
+
+SAMPLES = list(set([pmbi.util.get_substring(x, config.core.sample_pattern) for x in FILES]))
+SMIDS = {k:v for k,v in zip(SAMPLES, list(range(1, len(SAMPLES)+1)))}
+
+# localrules: link_rename_fastq
+
+rule all:
+    input:
+        expand("depth/{sample}_depth.txt.gz", sample=SAMPLES),
+        expand("gvcf/{sample}.g.vcf", sample=SAMPLES),
+        expand("fig/{sample}_depth_plot.png", sample=SAMPLES),
+
+rule bam_sort:
+    input:
+        bam="bam/input/{sample}.bam",
+    output:
+        sortbam="bam/process/{sample}_sorted.bam",
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"samtools sort -n --output-fmt BAM {input.bam} -T ./tmp > {output.sortbam}")
+        _run(input, output, wildcards, params)
+
+rule bam_rmdups:
+    input:
+        sortbam="bam/process/{sample}_sorted.bam",
+    output:
+        rmdupbam="bam/process/{sample}_sorted.rmdup.bam",
+    run:
+        def _run(input, output, wildcards, params):
+            # shell(f"samtools rmdup --output-fmt BAM {input.sortbam} {output.rmdupbam}")
+            fixm_tmp = f"bam/{wildcards.sample}_sorted.fixm.bam"
+            shell(f"samtools fixmate -m --output-fmt BAM {input.sortbam} {fixm_tmp}")
+            shell(f"samtools sort  --output-fmt BAM {fixm_tmp} > {input.sortbam}")
+            shell(f"samtools markdup -r --output-fmt BAM {input.sortbam} {output.rmdupbam}")
+            shell(f"rm {fixm_tmp}")
+        _run(input, output, wildcards, params)
+
+rule bam_addrg:
+    input:
+        rmdupbam="bam/process/{sample}_sorted.rmdup.bam",
+    output:
+        rgbam="bam/process/{sample}_sorted.rmdup.rg.bam",
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"samtools addreplacerg --output-fmt BAM -r ID:S1 -r LB:L1 -r SM:{SMIDS[wildcards.sample]} -o {output.rgbam} {input.rmdupbam}")
+        _run(input, output, wildcards, params)
+
+rule bam_index:
+    input:
+        rgbam="bam/process/{sample}_sorted.rmdup.rg.bam",
+    output:
+        final_bam="bam/final/{sample}_processed.bam",
+        bai="bam/final/{sample}_processed.bam.bai",
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"cp {input.rgbam} {output.final_bam}")
+            shell(f"samtools index {output.final_bam}")
+        _run(input, output, wildcards, params)
+
+rule samtools_depth:
+    input:
+        final_bam="bam/final/{sample}_processed.bam"
+    output:
+        depth="depth/{sample}_depth.txt.gz"
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"samtools depth -a {input.final_bam} | gzip > {output.depth}")
+        _run(input, output, wildcards, params)
+
+# sg.add_command(f"gatk --java-options \"-Xmx24g\" HaplotypeCaller -R {asm_path} -I {bam} -O {bam.replace('.dedupped.sorted.addrg.bam', '.g.vcf')} -ERC GVCF -A DepthPerAlleleBySample -A MappingQuality -A LikelihoodRankSumTest")
+rule haplotype_caller:
+    input:
+        final_bam="bam/final/{sample}_processed.bam",
+    output:
+        gvcf="gvcf/{sample}.g.vcf",
+    params:
+        memory=config.resources.memory,
+        ref=config.core.ref,
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"gatk --java-options \"-Xmx{params.memory}g\" HaplotypeCaller -R {params.ref} -I {input.final_bam} -O {output.gvcf} -ERC GVCF -A DepthPerAlleleBySample -A MappingQuality -A LikelihoodRankSumTest")
+        _run(input, output, wildcards, params)
+
+rule depth_plot:
+    input:
+        depth="depth/{sample}_depth.txt.gz"
+    output:
+        plt="fig/{sample}_depth_plot.png"
+    run:
+        coords = pd.read_csv(input.depth, sep="\t", compression= "gzip", header=None)
+        coords.columns = ["chrom", "pos", "depth"]
+        chroms = coords.chrom.unique()
+        panel = Paneler(len(chroms), 1, (10, 10))
+        for chrom in chroms:
+            these_coords = coords[coords.chrom==chrom]
+            x = these_coords.pos.to_numpy()
+            y = these_coords.depth.to_numpy()
+            y = np.log10(y+1)
+            panel.next_ax().plot(x,y, linewidth = 0.2)
+
+        panel.fig.savefig(output.plt)
+        
+        
+
+# rule genotype_gvcfs:
+#     input:
+#         gvcf="gvcf/{sample}.g.vcf",
+#     output:
+#         vcf="vcf/{sample}.vcf",
+#     params:
+#         memory=config.resources.memory,
+#         ref=config.core.ref,
+#     run:
+#         def _run(input, output, wildcards, params):
+#             shell(f"gatk --java-options \"-Xmx{params.memory}g\" GenotypeGVCFs -R {params.ref} -O {output.vcf} -V {input.gvcf}")
+#         _run(input, output, wildcards, params)
+
+        
