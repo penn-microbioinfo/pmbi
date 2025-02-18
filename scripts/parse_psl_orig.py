@@ -9,40 +9,40 @@ import numpy as np
 import palettable
 import pandas as pd
 from Bio.Align.psl import AlignmentIterator
+from Bio.SeqIO import 
 from Bio import SeqIO
 
 import pmbi.plotting as pmbip
 import pmbi.bio.dna
-import pmbi.bio.aln.psl as PSL
+import pmbi.bio.aln import Block, PslRow, PslRowAln
 
-importlib.reload(PSL)
 importlib.reload(pmbip)
 
-# %% PSL fields {{{
-# psl_fields = ["matches",
-#               "misMatches",
-#               "repMatches",
-#               "nCount",
-#               "qNumInsert",
-#               "qBaseInsert",
-#               "tNumInsert",
-#               "tBaseInsert",
-#               "strand",
-#               "qName",
-#               "qSize",
-#               "qStart",
-#               "qEnd",
-#               "tName",
-#               "tSize",
-#               "tStart",
-#               "tEnd",
-#               "blockCount",
-#               "blockSizes",
-#               "qStarts",
-#               "tStarts"]
-# }}}
+# %% PSL fields
+psl_fields = ["matches",
+              "misMatches",
+              "repMatches",
+              "nCount",
+              "qNumInsert",
+              "qBaseInsert",
+              "tNumInsert",
+              "tBaseInsert",
+              "strand",
+              "qName",
+              "qSize",
+              "qStart",
+              "qEnd",
+              "tName",
+              "tSize",
+              "tStart",
+              "tEnd",
+              "blockCount",
+              "blockSizes",
+              "qStarts",
+              "tStarts"]
 
 # %% 
+print(pa.rows[1])
 tar = "s0004895-augustus-gene-0.9-mRNA-1:1-401"
 tar_seq = None
 tars = {}
@@ -55,7 +55,7 @@ ques = {}
 for rec in SeqIO.parse("/stor/home/ka33933/work/Run3/fastq/fasta/AES537_R1.fa", "fasta"):
     ques[rec.id]=str(rec.seq)
 
-# %% {{{
+# %%
 def tostr(series):
     return "".join(series.tolist())
 
@@ -63,151 +63,297 @@ def insert(df, r, c, s):
     ins_d = {k:v for k,v in zip(r,s)}
     df.loc[r,c] = ins_d
 
-# }}}
 
 
+
+len(range(r.qSize,0,-1))
+# %%
+class PslRow(object):
+    def __init__(self,
+                 row,
+                ):
+        spl = row.split()
+        for i,field in enumerate(psl_fields):
+            if "," in spl[i]:
+                val = [int(x) for x in spl[i].split(",") if len(x)>0]
+            else:
+                try:
+                    val = int(spl[i])
+                except ValueError:
+                    val = spl[i]
+            setattr(self, field, val)
+        self.tSeq = None
+        self.qSeq = None 
+        if self.strand == "+":
+            pass
+        elif self.strand == "-":
+            self.qStart = self.qSize-self.qEnd
+            self.qEnd = self.qSize-self.qStart
+        else:
+            raise ValueError(f"Invalid strand: {self.strand}")
+    def __str__(self):
+        return('\n'.join([f"{f}: {getattr(self, f)}" for f in psl_fields]))
+    def add_sequences(self, tSeq, qSeq):
+        self.tSeq = tSeq
+        if self.strand == "+":
+            self.qSeq = qSeq
+        elif self.strand == "-":
+            self.qSeq = pmbi.bio.dna.revcomp(qSeq)
+            # self.qSeq = qSeq
+        else:
+            raise ValueError(f"Invalid strand: {self.strand}")
+    # def aln_len(self):
+    #     return {
+    #             "query": abs(self.qStart - self.qEnd),
+    #             "target": abs(self.tStart - self.tEnd),
+    #             }
+    # def dist_from_target_ends(self):
+    #     target_range = TargetRange(start=0, end=self.tSize)
+    #     self.left_dist = self.tStart - target_range.start
+    #     self.right_dist = target_range.end - self.tEnd
+    #     return DistFromTargetEnds(left=self.left_dist, right=self.right_dist)
+    # def show_target(self):
+    #     print('X'*(int(p.tStarts[0])-1) + '|'*(p.tSize-p.tStarts[0]))
+
+# %%
+# DistFromTargetEnds = namedtuple('DistFromTargetEnds', ['left', 'right'])
+# TargetRange = namedtuple('TargetRange', ['start', 'end'])
+class PslAln(object):
+    def __init__(self, target_seqs, query_seqs, rows: list[PslRow] = []):
+        self.rows = rows
+    def from_file(stream, target_seqs, query_seqs, n=None):
+        pa = PslAln(target_seqs=target_seqs, query_seqs=query_seqs)
+        while not stream.readline().startswith("-"):
+            continue
+        for i,line in enumerate(stream):
+            row = PslRow(line)
+            row.add_sequences(tSeq=target_seqs[row.tName], qSeq=query_seqs[row.qName])
+            pa.append(row)
+            if n is not None and i == n:
+                break
+        return pa
+    def append(self, row: PslRow):
+        self.rows.append(row)
 
 # %%
 fs = ["/stor/home/ka33933/work/Run3/blat/AES537_R1_blat.psl", "/stor/home/ka33933/work/Run3/blat/AES537_R2_blat.psl"]
 ldict = []
 with open(fs[0], 'r') as stream:
-    pa = PSL.PslAln.from_file(stream, target_seqs=tars, query_seqs=ques)
+    pa = PslAln.from_file(stream, target_seqs=tars, query_seqs=ques)
 
-# %%
-def leading_query_r(aln):
-    l = aln.leading_query_pos()
-    lqr=np.array([min(l), max(l)+1])+(-1*min(l))
-    return aln.r.qSeq[lqr[0]:lqr[1]][::-1]
-
-def leading_seqs(pa: PslAln, ques, tars):
-    leaders = []
-    for idx,row in enumerate(pa):
-        aln = PSL.PslRowAln(row, ques, tars)
-        if len(aln.leading_query_pos()) > 0:
-            leaders.append(leading_query_r(aln))
-    return leaders
-
-def trailing_query_f(aln):
-    t = aln.trailing_query_pos()
-    tqr = np.array([aln.r.qSize-((max(t)+1)-min(t)), aln.r.qSize])
-    return aln.r.qSeq[tqr[0]:tqr[1]][::1]
-
-def trailing_seqs(pa: PslAln, ques, tars):
-    trailers = []
-    for idx,row in enumerate(pa):
-        aln = PSL.PslRowAln(row, ques, tars)
-        if len(aln.trailing_query_pos()) > 0:
-            trailers.append(trailing_query_f(aln))
-    return trailers
-
-def count_nt_at_pos(seqs):
-    longest = max([len(s) for s in seqs])
-    ldict = []
-    for i in range(0,longest):
-        pos = []
-        for s in seqs:
-            if i >= len(s):
-                continue
-            else:
-                pos.append(s[i])
-        pos_count = pd.Series(pos).value_counts().to_dict()
-        ldict.append(pos_count)
-    counts = pd.DataFrame(ldict)
-    counts[np.isnan(counts)] = 0
-    return counts
-
-def sequence_composition_bars(weights):
-    xrange = weights.index.to_list()
-    weights_a = {k: [vv for kk,vv in weights[k].items()] for k,v in weights.to_dict().items()}
-    weights_p = weights.apply(lambda r: r/r.sum(), axis=1)
-    weights_p = {k: [vv for kk,vv in weights_p[k].items()] for k,v in weights_p.to_dict().items()}
-    t = pmbip.Theme()
-    t.axislabels.fontsize=6
-    panel = pmbip.Paneler(2,1,figsize=(9,3), format = "png")
-    ax = panel.next_ax()
-    bottom = np.zeros(len(xrange))
-    for nt,c in weights_a.items():
-        ax.bar(xrange, c , 1, label = nt, bottom = bottom)
-        bottom += c
-    t.apply_to(panel.current_ax)
-    ax = panel.next_ax()
-    bottom = np.zeros(len(xrange))
-    for nt,c in weights_p.items():
-        ax.bar(xrange, c , 1, label = nt, bottom = bottom)
-        bottom += c
-    t.apply_to(panel.current_ax)
-    return panel
-
-# %%
+len(pa.rows)
+pa.rows[1].tName
 pa_test = [x for x in pa.rows if x.tName == "annotation-ENSXP-018414552:2449-2849"]
-leaders = leader_seqs(pa_test, ques, tars)
-weights = count_nt_at_pos(leaders)
-weights
+len(pa_test)
+
+# %%
+# %% CHUNK: PslRowAln {{{
+class PslRowAln(object):
+    def __init__(self, pslrow: PslRow, query_seqs, target_seqs):
+        self.r = pslrow
+    #     self.df = pd.DataFrame({
+    #         "aln": [" "]*1200,
+    #         "tseq": [" "]*1200, 
+    #         "qseq": [" "]*1200
+    #         },
+    #         index = range(-400,800))
+    #     insert(self.df, range(0,pslrow.tSize), "tseq", self.r.tSeq)
+    #     insert(self.df, self._query_insert_point(), "qseq", self.r.qSeq)
+    #     for block in self._block_coords():
+    #         _qs,ts,bs = block
+    #         insert(self.df, range(ts,ts+bs), "aln", ["."]*bs)
+    # def _query_insert_point(self):
+    #     q_start_adj = self.r.tStart-self.r.qStart
+    #     t_range_q = range(q_start_adj, q_start_adj+self.r.qSize)
+    #     return t_range_q
+    def _block_coords(self):
+        block_coords = []
+        for qs,ts,bs in zip(self.r.qStarts, self.r.tStarts, self.r.blockSizes):
+            block_coords.append((qs,ts,bs))
+        return block_coords
+    def _blocks(self):
+        blocks = list()
+        bc = self._block_coords()
+        qSize_gapped = self.r.qSize
+        tSize_gapped = self.r.tSize
+        for c in range(0,len(bc)):
+            qS,tS,bS = bc[c]
+            if c == len(bc)-1:
+                block = Block(qS, qS+bS, tS, tS+bS, bS)
+            else:
+                block = Block(qS, bc[c+1][0], tS, bc[c+1][1], bS)
+            qSize_gapped += block.q_insert_bases
+            tSize_gapped += block.t_insert_bases
+            blocks.append(block)
+        # assert sum([b.t_insert_bases for b in blocks]) == self.r.tBaseInsert
+        self.qSize_gapped = qSize_gapped
+        self.tSize_gapped = tSize_gapped
+        return blocks
+    def _aln_repr_blocks(self):
+        blocks = self._blocks()
+        qseq = ''.join([b.q_gapped(self.r.qSeq) for b in blocks])
+        tseq = ''.join([b.t_gapped(self.r.tSeq) for b in blocks])
+        assert len(qseq) == len(tseq)
+        return (qseq, tseq)
+    def _aln_track(self):
+        blocks = self._blocks()
+        repr = self._aln_repr()
+        aln_range = range(self.leading, self.leading+len(self._aln_repr_blocks()[0]))
+        track = [" "]*len(repr[0])
+        for i in aln_range:
+            track[i] = "."
+        return "".join(track)
+    def n_leading_query(self):
+        blocks = self._blocks()
+        first_block = blocks[0]
+        return first_block.qS
+    def n_trailing_query(self):
+        blocks = self._blocks()
+        last_block = blocks[len(blocks)-1]
+        return self.r.qSize - last_block.qE
+    def leading_query_pos(self):
+        first_block = self._blocks()[0]
+        return range(first_block.tS-first_block.qS, first_block.tS-1)
+    def trailing_query_pos(self):
+        last_block = self._blocks()[len(self._blocks())-1]
+        return range(last_block.tE, last_block.tE+(self.r.qSize-last_block.qE))
+    def _aln_repr(self):
+        qb_repr, tb_repr = self._aln_repr_blocks()
+        blocks = self._blocks()
+        self.leading = 0
+        # Add leading parts of sequences to repr
+        q_leading = self.r.qSeq[0:blocks[0].qS]
+        t_leading = self.r.tSeq[0:blocks[0].tS]
+        # Add leading spaces
+        if len(q_leading) > len(t_leading):
+            diff = len(q_leading)-len(t_leading)
+            t_leading = " "*diff + t_leading
+            self.leading += len(t_leading)
+        elif len(q_leading) < len(t_leading):
+            diff = len(t_leading)-len(q_leading)
+            q_leading = " "*diff + q_leading
+            self.leading += len(q_leading)
+        else:
+            #Nothing to do
+            pass
+        self.trailing = 0
+        # Add trailing parts of sequences to repr
+        q_trailing = self.r.qSeq[blocks[len(blocks)-1].qE:self.r.qSize]
+        t_trailing = self.r.tSeq[blocks[len(blocks)-1].tE:self.r.tSize]
+        # Add trailing spaces
+        if len(q_trailing) > len(t_trailing):
+            diff = len(q_trailing)-len(t_trailing)
+            t_trailing = t_trailing + " "*diff
+            self.trailing = len(t_trailing)
+        elif len(q_trailing) < len(t_trailing):
+            diff = len(t_trailing)-len(q_trailing)
+            q_trailing = q_trailing + " "*diff
+            self.trailing = len(q_trailing)
+        else:
+            #Nothing to do
+            pass
+        q_repr = q_leading + qb_repr + q_trailing
+        t_repr = t_leading + tb_repr + t_trailing
+        return (q_repr, t_repr)
+    def show(self, chunksize=100):
+        qseq,tseq = self._aln_repr()
+        assert len(qseq) == len(tseq)
+        breaks = list(range(0, len(tseq), chunksize))[0:len(tseq)]
+        lines = []
+        for b in breaks:
+            lines.append("\n".join([
+                f"-- {b}:{b+chunksize}",
+                f"A: {self._aln_track()[b:b+chunksize]}",
+                f"Q: {qseq[b:b+chunksize]}",
+                f"T: {tseq[b:b+chunksize]}"
+                ]))
+        print("\n".join(lines))
+
+# }}}
 
 
-# %% 
+# %% CHUNK: Block class {{{
+class Block(object):
+    def __init__(self, qS, qE, tS, tE, psl_bs):
+        self.qS = qS
+        self.tS = tS
+        # self.qE, self.tE = Block._correct_ends(qS, qE, tS, tE, psl_bs, qSize, tSize)
+        self.qE, self.tE = (qE, tE)
+        # self.qSize = qSize
+        # self.tSize = tSize
+        self.psl_bs = psl_bs 
+        self.qbS = self.qE-qS
+        self.tbS = self.tE-tS
+        assert self.qbS >= psl_bs and self.tbS >= psl_bs
+        self.q_has_insert = self.qbS > psl_bs
+        self.t_has_insert = self.tbS > psl_bs
+        self.q_insert_bases = self.qbS - psl_bs
+        self.t_insert_bases = self.tbS - psl_bs
+    def __str__(self):
+        return ' '.join(map(str, [self.qS, self.qE, self.tS, self.tE, self.psl_bs, self.qbS, self.tbS]))
+    # @staticmethod
+    # def _correct_ends(qS, qE, tS, tE, psl_bs, qSize, tSize):
+    #     if ( (tS+(qE-qS)) > tSize ):
+    #         corrected_qE = qS+psl_bs
+    #     else:
+    #         corrected_qE = qE
+    #     if ( (qS+(tE-tS)) > qSize ):
+    #         corrected_tE = tS+psl_bs
+    #     else:
+    #         corrected_tE = tE
+    #     return(corrected_qE, corrected_tE)
+    # def reaches_end_of_query(self):
+    #     if self.qS+self.tbS > self.qSize:
+    #         return True
+    #     else:
+    #         return False
+    # def reaches_end_of_target(self):
+    #     if self.tS+self.qbS > self.tSize:
+    #         self.qE = self.qS+self.psl_bs
+    #         return True
+    #     else:
+    #         return False
+    def q_gapped(self, qSeq):
+        # if self.reaches_end_of_query():
+        #     self.tE = self.tS+self.psl_bs
+        #     char = " "
+        # else:
+        #     char = "-"
+        char = "-"
+        qseq = qSeq[self.qS:self.qE]
+        qseq += "-"*self.t_insert_bases
+        return qseq
+    def t_gapped(self, tSeq):
+        # if self.reaches_end_of_target():
+        #     char = " "
+        # else:
+        #     char = "-"
+        char = "-"
+        tseq = tSeq[self.tS:self.tE]
+        tseq += char*self.q_insert_bases
+        return tseq
+    def mismatches(self, qSeq, tSeq):
+        qseq = qSeq[self.qS:self.qE]
+        tseq = tSeq[self.tS:self.tE]
+        mm = []
+        for i in range(0,min([len(qseq),len(tseq)])):
+            if qseq[i] != tseq[i]:
+                mm.append((i, self.qS+i, self.tS+i, qseq[i], tseq[i]))
+        return mm
+
+# }}}
+
+# %%
 rs = []
 seq = tars["annotation-ENSXP-018414552:2449-2849"]
 for idx,row in enumerate(pa_test):
-    aln = PSL.PslRowAln(row, ques, tars)
+    aln = PslRowAln(row, ques, tars)
     rs += list(aln.leading_query_pos()) + list(aln.trailing_query_pos())
-    if len(aln.trailing_query_pos()) > 0:
+    if len(aln.leading_query_pos()) > 115:
         print(idx)
-        # leaders.append(leading_query_r(aln))
 
 # %%
-aln = PSL.PslRowAln(pa_test[113034], ques, tars)
-aln.show()
-aln.trailing_query_pos()
-max(aln.trailing_query_pos())
-aln.r.qSeq[(150-73):150]
-trailing_query_f(aln)
-aln = PSL.PslRowAln(pa_test[92109], ques, tars)
-leading_query_r(aln)
-# %%
-target_counts = pd.DataFrame({"tar": [r.tName for r in pa.rows], "que": [r.qName for r in pa.rows]}).iloc[:,0].value_counts()
-target_counts_sort = target_counts.sort_values(ascending=False)
-# %%
-for i,tar in enumerate(target_counts_sort.iloc[0:20].index):
-    pa_sub = [x for x in pa.rows if x.tName == tar]
-    leading_panel = sequence_composition_bars(count_nt_at_pos(leading_seqs(pa_sub, ques, tars)))
-    trailing_panel = sequence_composition_bars(count_nt_at_pos(trailing_seqs(pa_sub, ques, tars)))
-    leading_panel.fig.savefig(f"/stor/home/ka33933/figures/leading_bar_test_{i}.png")
-    trailing_panel.fig.savefig(f"/stor/home/ka33933/figures/trailing_bar_test_{i}.png")
-    print(tar)
-
-
-# %% TODO: Need to identify bad alignments somehow... for the purposes of making sure that the base proportions makes sense in some of the weirder edge cases (e.g., #19)
-target_counts_sort.index[0]
-pa.rows[0]
-target_counts_sort.index[0]
-pa_test = [x for x in pa.rows if x.tName == target_counts_sort.index[5]]
-pa_test = [PSL.PslRowAln(r, ques, tars) for r in pa_test]
-[(rr.r.qNumInsert, rr.r.qBaseInsert, rr.r.tNumInsert, rr.r.tBaseInsert) for rr in pa_test]
-pa_test[0].r.qEnd
-print(trailing_seqs(pa_test, ques, tars))
-# %%
-trailing_panel = sequence_composition_bars(count_nt_at_pos(trailing_seqs(pa_test, ques, tars)))
-trailing_panel.fig.savefig("/stor/home/ka33933/figures/trailing_bar_test.png")
-
-# %% Stacked bar
-
-# %%
-
-pos
-# %%
-aln = PSL.PslRowAln(pa_test[113040], ques, tars)
-aln.show()
-leading_query_r(aln)
-aln = PSL.PslRowAln(pa_test[92109], ques, tars)
-leading_query_r(aln)
-
-# %%
-print(aln.r)
-aln.r.qSeq[0:117]
-aln.show()
-aln._block_coords()
-aln.trailing_query_pos()
+aln = PslRowAln(pa_test[113040], ques, tars)
 aln.show()
 
 # %%
