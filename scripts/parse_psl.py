@@ -1,4 +1,5 @@
 import importlib
+import os
 import re
 import itertools
 from collections import namedtuple
@@ -43,26 +44,29 @@ importlib.reload(pmbip)
 # }}}
 
 # %% 
+REF_PREFIX="/home/amsesk/penn-microbioinfo/anat/ref/"
+QUE_PREFIX="/home/amsesk/penn-microbioinfo/anat/psl"
+
 tar = "s0004895-augustus-gene-0.9-mRNA-1:1-401"
 tar_seq = None
 tars = {}
-for rec in SeqIO.parse("/stor/home/ka33933/work/ref/loci_ref/Unique_1388_nov2019_noDegenerateNucl.fna", "fasta"):
+for rec in SeqIO.parse(os.path.join(REF_PREFIX, "Unique_1388_nov2019_noDegenerateNucl.fna"), "fasta"):
     tars[rec.id]=str(rec.seq)
 
 que = "A00572:174:HGGKNDRXX:1:2101:3215:1078"
 que_seq = None
 ques = {}
-for rec in SeqIO.parse("/stor/home/ka33933/work/Run3/fastq/fasta/AES537_R1.fa", "fasta"):
+for rec in SeqIO.parse(os.path.join(QUE_PREFIX, "AES537_R1.fa"), "fasta"):
     ques[rec.id]=str(rec.seq)
 
-# %% {{{
-def tostr(series):
-    return "".join(series.tolist())
-
-def insert(df, r, c, s):
-    ins_d = {k:v for k,v in zip(r,s)}
-    df.loc[r,c] = ins_d
-
+# # %% {{{
+# def tostr(series):
+#     return "".join(series.tolist())
+#
+# def insert(df, r, c, s):
+#     ins_d = {k:v for k,v in zip(r,s)}
+#     df.loc[r,c] = ins_d
+#
 # }}}
 
 
