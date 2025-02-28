@@ -2,6 +2,10 @@
 sample_pattern="(^[^_]+)[.]bam"
 ref="/home/amsesk/super1/cdiff_evo/ref/GCF_019880625.1_ASM1988062v1_genomic.fna"
 
+[vcf_filter]
+mqrs_min = -5.0
+dp_min = 5
+
 [opts]
 remove_intermediate_bams=true
 

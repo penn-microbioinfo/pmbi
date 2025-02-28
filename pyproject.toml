@@ -45,6 +45,7 @@ dependencies = [
     "openpyxl",
     "tifffile",
     "imagecodecs",
+    "pyvcf3",
     ]
 
 [project.optional-dependencies]
