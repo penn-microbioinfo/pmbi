@@ -1,4 +1,5 @@
 # %%
+
 import shelve
 import copy
 import pmbi.plotting as pmbip
@@ -6,9 +7,15 @@ import pandas as pd
 import argparse
 import numpy as np
 import palettable
+from matplotlib.markers import MarkerStyle
 import re
 
 import vcf
+
+# %%
+import importlib
+importlib.reload(pmbip)
+
 
 # %%
 parser = argparse.ArgumentParser()
@@ -31,7 +38,7 @@ if include is not None:
 
 
 vcf_reader = vcf.Reader(open(args.gvcf))
-vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.vcf", 'r'))
+vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
 # next(vcf_reader.reader)
 # for r in vcf_reader:
 #     r =r 
@@ -39,34 +46,46 @@ vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.vc
 
 # %%
 from Bio import SeqIO
-ref = SeqIO.parse("/home/amsesk/super1/cdiff_evo/ref/GCF_019880625.1_ASM1988062v1_genomic.fna", "fasta")
+ref = SeqIO.parse("/home/amsesk/super1/cdiff_evo/ref/GCF_021378415.1_ASM2137841v1_genomic.fna", "fasta")
+
+seqnames = []
 for r in ref:
-    print(dir(r))
-    if r.name == "NZ_JACGTL010000001.1":
-        core = r
-        chrom_len = len(r.seq)
+    print(r.name)
+    # if r.name == "NZ_JACGTL010000001.1":
+    #     core = r
+    #     chrom_len = len(r.seq)
 
 # %%
-include = "bbb"
+vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
+include = "NZ_CP059592.1"
 skip_na_mqrs = False
-select_contigs = ["NZ_JACGTL010000001.1"]
+select_contigs = include.split(',')
 ldict = []
 n_pos = 0
+allele_counts = {}
+i=1
 for record in vcf_reader:
-    if include is not None:
-        if record.CHROM not in select_contigs:
+    if len(record.ALT) > 1:
+        n_alt = len(record.ALT)-1
+        if len([s["AD"] for s in record.samples if hasattr(s.data, "AD")]) == 0:
             continue
-    if "END" in record.INFO:
-        block_range = range(record.POS-1, record.INFO["END"])
-    else:
-        block_range = range(record.start, record.end)
-    n_pos += len(block_range)
-    if n_pos > max(block_range)+1:
-        n_pos -= (n_pos-(max(block_range)+1))
-    if len(record.get_hets()) == 1:
-        print(record.samples)
-        for sample in [s for s in record.samples if re.search("(^Sample|^Ancestor)", s.sample) is not None]:
-            ad = sample["AD"]
+        for sample in record.samples:
+            # print(sample.data)
+            if sample["AD"] is None:
+                ad = None
+                # ad = [0]*(1+len(record.ALT)-1)
+                # ref_count = 0
+                # alt_count = [0]*n_alt
+            else:
+                # ad = sample["AD"][0:len(sample["AD"])]
+                ad = sample["AD"][0:len(sample["AD"])]
+                # ref_count = sample["AD"][0]
+                # alt_count = sample["AD"][1:(1+(n_alt+1))]
+                if ad[0] != 0 and all([x==0 for x in ad[1::]]):
+                    print(record)
+                    print(sample)
+                # [0,1,2,3,4]
+                # l[1:5-]
             dp = sample["DP"]
             if "MQRankSum" not in record.INFO:
                 if skip_na_mqrs:
@@ -75,29 +94,228 @@ for record in vcf_reader:
                     mqrs = np.nan
             else:
                 mqrs = record.INFO["MQRankSum"]
-            print(sample)
-            if ad is None:
-                continue
-            s = sum(ad)
-            if s == 0:
-                p = np.nan
-                q = np.nan
-            else:
-                p = ad[0]/s
-                q = ad[1]/s
-            ldict.append({
+            newrow = {
                 "sample": sample.sample,
                 "CHROM": record.CHROM, 
                 "POS": record.POS,
+                "REF": record.REF,
+                "ALT": record.ALT,
                 "AD": ad,
-                "p": p,
-                "q": q,
+                # "REF_count": ref_count,
+                # "ALT_count": alt_count,
                 "DP": dp,
                 "MQRS": mqrs,
-                })
+                }
+            # print(newrow)
+            ldict.append(newrow)
+        i+=1
+    # if i>=10:
+    #     break
+#     if include is not None:
+#         if record.CHROM not in select_contigs:
+#             continue
+#     if "END" in record.INFO:
+#         block_range = range(record.POS-1, record.INFO["END"])
+#     else:
+#         block_range = range(record.start, record.end)
+#     n_pos += len(block_range)
+#     if n_pos > max(block_range)+1:
+#         n_pos -= (n_pos-(max(block_range)+1))
+#     alleles = record.alleles
+#     if len(alleles) in allele_counts:
+#         allele_counts[len(alleles)] += 1
+#     else:
+#         allele_counts[len(alleles)] = 1
+#     if len(alleles) == 2:
+#         for sample in [s for s in record.samples if re.search("(^Sample|^Ancestor)", s.sample) is not None]:
+#             ad = sample["AD"]
+#             dp = sample["DP"]
+#             if "MQRankSum" not in record.INFO:
+#                 if skip_na_mqrs:
+#                     continue
+#                 else:
+#                     mqrs = np.nan
+#             else:
+#                 mqrs = record.INFO["MQRankSum"]
+#             if ad is None:
+#                 continue
+#             s = sum(ad)
+#             if s == 0:
+#                 continue
+#                 # p = np.nan
+#                 # q = np.nan
+#             else:
+#                 p = ad[0]/s
+#                 q = ad[1]/s
+#             ldict.append({
+#                 "sample": sample.sample,
+#                 "CHROM": record.CHROM, 
+#                 "POS": record.POS,
+#                 "AD": ad,
+#                 "p": p,
+#                 "q": q,
+#                 "DP": dp,
+#                 "MQRS": mqrs,
+#                 })
+#
+
+# allele_counts
+# %%
+def variant_in(row, sample):
+    if row[sample] is not None:
+        return True
+    else:
+        return False
+
+def variant_only_in(row, samples):
+    variant_not_none_in = []
+    # print(row)
+    # return None
+    for sample in row.index:
+        if row[sample] is not None:
+            variant_not_none_in.append(sample)
+    if all([x in samples for x in variant_not_none_in]):
+        return True
+    else:
+        return False
+    
+
+# %% Convert to DataFrame and pivot to POS x sample_AD 
+df = pd.DataFrame(ldict)
+df_ad = df.pivot(index="POS", columns="sample", values="AD")
+n_var_total = df_ad.shape[0]
+df_ad.columns
+
+
+# %% Drop variants that are only variant in the control samples
+control_samples = ["DNAfreewater1.20241030", "Extractblankswab1.20241030", "Extractemptywell1.20241030" , "mockdna1.20241030"]
+df_ad = df_ad[~df_ad.apply(variant_only_in, axis=1, args=(control_samples,))]
+df_ad = df_ad.drop(control_samples, axis=1)
+n_var_noControl = df_ad.shape[0]
+
+# %% Drop variants that are variant in the Ancestor
+ancestor = "Ancestor.Day0"
+df_ad = df_ad[~df_ad.apply(variant_in, axis=1, args=(ancestor,))]
+n_var_noControl_noAncestor = df_ad.shape[0]
+
+# %% Print some stats
+print(f"""
+      Total variant: {n_var_total}
+      sans variant control-only variants: {n_var_noControl}
+      sans variant in Ancestor: {n_var_noControl_noAncestor}
+      """)
+
+# %% Pull filtered variants from main Dataframe and filter out control and ancestor samples
+df_filt = df[df["POS"].isin(df_ad.index)]
+df_filt = df_filt[~df_filt["sample"].isin(control_samples+[ancestor])]
+df_filt[["REF", "ALT", "AD"]]
+df_filt["alleles"] = df_filt.apply(lambda row: ([row.REF]+list(row.ALT)), axis=1)
+
+# %% Get rid of NONREF values
+df_filt["alleles"] = df_filt["allelw
+                             es"].apply(lambda row: row[0:-1:])
+df_filt["AD"] = [row[0:-1:] if row is not None else None for row in df_filt["AD"]]
 
 # %%
-df = pd.DataFrame(ldict)
+df_filt = df_filt[["sample", "CHROM", "POS", "REF", "alleles", "AD", "DP", "MQRS"]]
+
+# %% Just to make sure that all of the non-None allele lists are the same length
+assert df_filt.pivot(index="POS", columns="sample", values="AD").apply(lambda row: [len(x) for x in row if x is not None], axis=1).apply(lambda row: all([x==row[0] for x in row])).all()
+
+# %% Add count of alleles per variant position
+n_alleles = pd.DataFrame(df_filt.pivot(index="POS", columns = "sample", values="alleles").apply(lambda row: [len(x) for x in row if x is not None][0], axis=1)).reset_index().rename(columns={0: "n_alleles"})
+df_filt = pd.merge(left=df_filt, right=n_alleles, how="left")
+df_filt
+
+# %% Convert AD==None into lists with counts of REF allele = DP, followed by 0's for the other alleles
+df_filt["AD"] = df_filt.apply(lambda row: row["AD"] if row["AD"] is not None else [row["DP"]]+[0]*(row["n_alleles"]-1), axis=1)
+
+# %%
+def ad_to_af(ads, round_to=3):
+    total = sum(ads)
+    return [round(np.true_divide(x, total),4) for x in ads]
+
+na_af_at = np.where([sum(x)==0 for x in df_filt["AD"]])
+
+# NOTE: np.nan here means that the depth at that variant position was also 0
+df_filt["AF"] = df_filt["AD"].apply(ad_to_af)
+
+# %%
+
+df_filt["POS"].unique()
+df_filt_posBySample = df_filt.pivot(index="POS", columns="sample", values=["AD","DP"])
+df_filt_posBySample
+
+# %%
+plt_n_alleles = df_filt[["POS", "n_alleles"]].drop_duplicates()
+plt_dp = df_filt_posBySample["DP"].apply(lambda x: sum(x)/len(x), axis=1)
+df_filt
+panel = pmbip.Paneler(nrow=2, ncol=2, figsize=(4,4))
+panel.next_ax().hist(plt_n_alleles["n_alleles"])
+panel.current_ax.set_xlabel("n alleles")
+panel.current_ax.set_ylabel("frequency")
+panel.next_ax().hist(plt_dp)
+panel.current_ax.set_xlabel("mean depth at site")
+panel.current_ax.set_ylabel("frequency")
+pal = palettable.scientific.diverging.Roma_10.mpl_colors
+ax = panel.next_ax()
+for i,nall in enumerate(df_filt["n_alleles"].unique()):
+    sub = df_filt[df_filt["n_alleles"] == nall]
+    ax.scatter(np.log10(sub["DP"]), [x[0] for x in sub["AF"]], s=0.5, marker=MarkerStyle(marker="o", fillstyle="full"), c=pal[i])
+panel.current_ax.set_xlabel("depth")
+panel.current_ax.set_ylabel("freq(REF)")
+pal = palettable.scientific.diverging.Tofino_10.mpl_colors
+ax = panel.next_ax()
+for i,nall in enumerate(df_filt["n_alleles"].unique()):
+    sub = df_filt[df_filt["n_alleles"] == nall]
+    ax.scatter(np.log10(sub["DP"]), [x[1] for x in sub["AF"]], s=0.5, marker=MarkerStyle(marker="o", fillstyle="full"), c=pal[i])
+panel.current_ax.set_xlabel("depth")
+panel.current_ax.set_ylabel("freq(ALT_major)")
+panel.fig.savefig("/home/amsesk/figures/cdiff_evo/filtered_snps_stats.pdf")
+# %%
+# df.POS.unique().shape
+
+# %%
+df
+samps = df["sample"].unique()
+ancest_pq = df[df["sample"]==samps[0]][["p","q"]]
+df[(df["sample"]==samps[0])]
+df[(df["sample"]==samps[0]) & (df["q"] >= 0.05)]
+pos_not_fixed_in_anc = df[~df["POS"].isin(pos_anc)]
+pos_not_fixed_in_anc
+
+ancest_pq = df[df["sample"]==samps[3]][["p","q"]]
+ancest_pq
+
+len(samps)
+# %%
+panel = pmbip.Paneler(4,4,(9,9))
+panel_d = pmbip.Paneler(4,4,(9,9))
+for samp in samps:
+    # tp = pos_not_fixed_in_anc[pos_not_fixed_in_anc["sample"]==samp]
+    tp = df[df["sample"]==samp]
+    [x for x in tp.iterrows() if np.isnan(x[1]["p"])]
+    list(tp.iterrows())[0]
+    kde = gaussian_kde(tp["p"])
+    x = np.arange(0.0,1.0,0.01)
+    y = kde(x)
+    print(x,y)
+    panel.next_ax().scatter(tp["p"], tp["DP"], s = 0.1)
+    panel_d.next_ax().scatter(x,y,s=0.1)
+    panel.current_ax.set_title(f"{samp} - n={tp.shape[0]}")
+
+panel.fig.savefig("/home/amsesk/figures/cdiff_evo/ancestor_p_depth.png")
+panel_d.fig.savefig("/home/amsesk/figures/cdiff_evo/ancestor_p_density.png")
+
+# %%
+poly = pos_not_fixed_in_anc[["sample", "POS", "p"]].pivot(index="sample", columns = "POS", values="p").fillna(1.0)
+poly
+panel = pmbip.Paneler(1,1,(12,4), dpi=1400)
+pmbip.heatmap(poly.iloc[:], panel.next_ax(), xlab="pos", ylab="sample")
+panel.current_ax.set_xticklabels(labels=[])
+panel.fig.savefig("/home/amsesk/figures/cdiff_evo/snp_hm_ancestorMinus.png", dpi=1400)
+
+# %%
 print(df)
 print(df.shape)
 df_finite = df[ (~np.isnan(df["MQRS"])) & (~np.isnan(df["DP"]))]
