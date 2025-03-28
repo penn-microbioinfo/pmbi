@@ -1,20 +1,26 @@
 # %%
 
-import shelve
-import copy
-import pmbi.plotting as pmbip
-import pandas as pd
 import argparse
-import numpy as np
-import palettable
-from matplotlib.markers import MarkerStyle
-import re
-
-import vcf
-
+import copy
+import gzip
 # %%
 import importlib
+import re
+import shelve
+
+import numpy as np
+import palettable
+import pandas as pd
+import vcf
+from matplotlib.markers import MarkerStyle
+
+import pmbi.bio.gtf as pgtf
+import pmbi.bio.vcf as pvcf
+import pmbi.plotting as pmbip
+
 importlib.reload(pmbip)
+importlib.reload(pgtf)
+importlib.reload(pvcf)
 
 
 # %%
@@ -35,28 +41,31 @@ if include is not None:
     select_contigs = args.include.split(',')
 
 # %%
-
-
-vcf_reader = vcf.Reader(open(args.gvcf))
-vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
-# next(vcf_reader.reader)
-# for r in vcf_reader:
-#     r =r 
-#     break
-
-# %%
 from Bio import SeqIO
+
 ref = SeqIO.parse("/home/amsesk/super1/cdiff_evo/ref/GCF_021378415.1_ASM2137841v1_genomic.fna", "fasta")
 
-seqnames = []
-for r in ref:
-    print(r.name)
-    # if r.name == "NZ_JACGTL010000001.1":
-    #     core = r
-    #     chrom_len = len(r.seq)
+# %% CHUNK: Parse the referenece GTF to convert gene_ids to gene names downstream
+importlib.reload(pgtf)
+with gzip.open("/home/amsesk/pkgs/snpEff/data/cdiff_CD196/genes.gtf.gz", 'rt') as gtf_handle:
+    gtf = pgtf.FeatureFile.from_gtf(gtf_handle)
+
+print(gtf.attributes())
 
 # %%
-vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
+
+# %% CHUNK: Parse the reference protein fasta
+with gzip.open("/home/amsesk/pkgs/snpEff/data/cdiff_CD196/protein.fa.gz", 'rt') as fa_handle:
+    prot_ref = {s.name: str(s.seq) for s in SeqIO.parse(fa_handle, "fasta")}
+
+
+gtf_df[gtf_df["gene_id"]=="H3006_RS12050"][["seqname", "source", "feature", "start", "end", "gene_id", "product"]]
+prot_ref
+# %%
+
+# %% CHUNK: Do initial reading a filtering of GCVF {{{
+# vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
+vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.snpeff.g.vcf", 'r'))
 include = "NZ_CP059592.1"
 skip_na_mqrs = False
 select_contigs = include.split(',')
@@ -94,6 +103,10 @@ for record in vcf_reader:
                     mqrs = np.nan
             else:
                 mqrs = record.INFO["MQRankSum"]
+            if "ANN" in record.INFO:
+                annot = record.INFO["ANN"]
+            else:
+                annot = None
             newrow = {
                 "sample": sample.sample,
                 "CHROM": record.CHROM, 
@@ -105,97 +118,35 @@ for record in vcf_reader:
                 # "ALT_count": alt_count,
                 "DP": dp,
                 "MQRS": mqrs,
+                "ANN": annot,
                 }
             # print(newrow)
             ldict.append(newrow)
         i+=1
-    # if i>=10:
-    #     break
-#     if include is not None:
-#         if record.CHROM not in select_contigs:
-#             continue
-#     if "END" in record.INFO:
-#         block_range = range(record.POS-1, record.INFO["END"])
-#     else:
-#         block_range = range(record.start, record.end)
-#     n_pos += len(block_range)
-#     if n_pos > max(block_range)+1:
-#         n_pos -= (n_pos-(max(block_range)+1))
-#     alleles = record.alleles
-#     if len(alleles) in allele_counts:
-#         allele_counts[len(alleles)] += 1
-#     else:
-#         allele_counts[len(alleles)] = 1
-#     if len(alleles) == 2:
-#         for sample in [s for s in record.samples if re.search("(^Sample|^Ancestor)", s.sample) is not None]:
-#             ad = sample["AD"]
-#             dp = sample["DP"]
-#             if "MQRankSum" not in record.INFO:
-#                 if skip_na_mqrs:
-#                     continue
-#                 else:
-#                     mqrs = np.nan
-#             else:
-#                 mqrs = record.INFO["MQRankSum"]
-#             if ad is None:
-#                 continue
-#             s = sum(ad)
-#             if s == 0:
-#                 continue
-#                 # p = np.nan
-#                 # q = np.nan
-#             else:
-#                 p = ad[0]/s
-#                 q = ad[1]/s
-#             ldict.append({
-#                 "sample": sample.sample,
-#                 "CHROM": record.CHROM, 
-#                 "POS": record.POS,
-#                 "AD": ad,
-#                 "p": p,
-#                 "q": q,
-#                 "DP": dp,
-#                 "MQRS": mqrs,
-#                 })
-#
 
-# allele_counts
-# %%
-def variant_in(row, sample):
-    if row[sample] is not None:
-        return True
-    else:
-        return False
+# }}}
 
-def variant_only_in(row, samples):
-    variant_not_none_in = []
-    # print(row)
-    # return None
-    for sample in row.index:
-        if row[sample] is not None:
-            variant_not_none_in.append(sample)
-    if all([x in samples for x in variant_not_none_in]):
-        return True
-    else:
-        return False
-    
+# %% CHUNK: Do the rest
 
-# %% Convert to DataFrame and pivot to POS x sample_AD 
+# %% CHUNK: %% Convert to DataFrame and pivot to POS x sample_AD 
 df = pd.DataFrame(ldict)
+df["ANN"] = df["ANN"].apply(pvcf.split_snpeff_annots)
+df["ANN"].iloc[0]
 df_ad = df.pivot(index="POS", columns="sample", values="AD")
 n_var_total = df_ad.shape[0]
-df_ad.columns
 
-
-# %% Drop variants that are only variant in the control samples
+# %% CHUNK: Define some sample pools
 control_samples = ["DNAfreewater1.20241030", "Extractblankswab1.20241030", "Extractemptywell1.20241030" , "mockdna1.20241030"]
-df_ad = df_ad[~df_ad.apply(variant_only_in, axis=1, args=(control_samples,))]
+ancestor_sample = "Ancestor.Day0"
+filter_out_samples = control_samples+[ancestor_sample]
+
+# %% CHUNK: Drop variants that are only variant in the control samples
+df_ad = df_ad[~df_ad.apply(pvcf.variant_only_in, axis=1, args=(control_samples,))]
 df_ad = df_ad.drop(control_samples, axis=1)
 n_var_noControl = df_ad.shape[0]
 
-# %% Drop variants that are variant in the Ancestor
-ancestor = "Ancestor.Day0"
-df_ad = df_ad[~df_ad.apply(variant_in, axis=1, args=(ancestor,))]
+# %% CHUNK: Drop variants that are variant in the Ancestor
+df_ad = df_ad[~df_ad.apply(pvcf.variant_in, axis=1, args=(ancestor_sample,))]
 n_var_noControl_noAncestor = df_ad.shape[0]
 
 # %% Print some stats
@@ -205,46 +156,157 @@ print(f"""
       sans variant in Ancestor: {n_var_noControl_noAncestor}
       """)
 
-# %% Pull filtered variants from main Dataframe and filter out control and ancestor samples
+# %% CHUNK: Pull filtered variants from main Dataframe and filter out control and ancestor samples
 df_filt = df[df["POS"].isin(df_ad.index)]
-df_filt = df_filt[~df_filt["sample"].isin(control_samples+[ancestor])]
-df_filt[["REF", "ALT", "AD"]]
-df_filt["alleles"] = df_filt.apply(lambda row: ([row.REF]+list(row.ALT)), axis=1)
+df_filt = df_filt[~df_filt["sample"].isin(filter_out_samples)]
+df_filt = df_filt.reset_index(drop=True)
 
-# %% Get rid of NONREF values
-df_filt["alleles"] = df_filt["allelw
-                             es"].apply(lambda row: row[0:-1:])
+# %% CHUNK: Remove NONREF 'allele' from ALT and AD columns, also convert ALT to list of str
+df_filt["ALT"] = df_filt["ALT"].apply(lambda alts: [str(x) for x in alts[0:-1:]])
 df_filt["AD"] = [row[0:-1:] if row is not None else None for row in df_filt["AD"]]
 
-# %%
-df_filt = df_filt[["sample", "CHROM", "POS", "REF", "alleles", "AD", "DP", "MQRS"]]
+assert df_filt["ALT"].apply(lambda x: [isinstance(xx, str) for xx in x]).all(), "Not all lists in ALT are of type str"
+assert df_filt["ALT"].apply(lambda x: [len(xx)>0 for xx in x]).all(), "Not all lists in ALT are length > 0"
 
-# %% Just to make sure that all of the non-None allele lists are the same length
+# %% CHUNK: Combine REF and ALT into a new 'alleles' column that contains a list of all alleles for a position
+df_filt["alleles"] = df_filt.apply(lambda row: ([row.REF]+list(row.ALT)), axis=1)
+
+assert df_filt["alleles"].apply(lambda x: [isinstance(xx, str) for xx in x]).all(), "Not all lists in ALT are of type str"
+assert df_filt["alleles"].apply(lambda x: [len(xx)>0 for xx in x]).all(), "Not all lists in ALT are length > 0"
+
+# %% CHUNK: Make sure that all of the non-None allele lists are the same length for each position.
 assert df_filt.pivot(index="POS", columns="sample", values="AD").apply(lambda row: [len(x) for x in row if x is not None], axis=1).apply(lambda row: all([x==row[0] for x in row])).all()
 
-# %% Add count of alleles per variant position
+# %% CHUNK: Add a column that contains the number of alleles for each variant position
 n_alleles = pd.DataFrame(df_filt.pivot(index="POS", columns = "sample", values="alleles").apply(lambda row: [len(x) for x in row if x is not None][0], axis=1)).reset_index().rename(columns={0: "n_alleles"})
 df_filt = pd.merge(left=df_filt, right=n_alleles, how="left")
-df_filt
 
-# %% Convert AD==None into lists with counts of REF allele = DP, followed by 0's for the other alleles
-df_filt["AD"] = df_filt.apply(lambda row: row["AD"] if row["AD"] is not None else [row["DP"]]+[0]*(row["n_alleles"]-1), axis=1)
+# %% CHUNK: %% Convert AD==None into lists with counts of REF allele = DP, followed by 0's for the other alleles
+df_filt["AD"] = df_filt.apply(lambda row: row["AD"] if row["AD"] is not None else [row["DP"]]+[0.0]*(row["n_alleles"]-1), axis=1)
 
-# %%
-def ad_to_af(ads, round_to=3):
-    total = sum(ads)
-    return [round(np.true_divide(x, total),4) for x in ads]
-
-na_af_at = np.where([sum(x)==0 for x in df_filt["AD"]])
-
+# %%CHUNK: Compute allele frequency AF for AD
 # NOTE: np.nan here means that the depth at that variant position was also 0
-df_filt["AF"] = df_filt["AD"].apply(ad_to_af)
+df_filt["AF"] = df_filt["AD"].apply(pvcf.ad_to_af)
+na_af_at = np.where([sum(x)==0 for x in df_filt["AD"]])
+na_af_at
+df_filt.iloc[154,:]
+
+# CHUNK: %% Assign gene names based on POS
+def pos_to_gene_name(pos, gtf_df):
+    after_start = gtf_df["start"] <= pos
+    before_end = gtf_df["end"] >= pos
+    entries = gtf_df[(after_start)&(before_end)]
+    if entries.shape[0] == 0:
+        return "intergenic"
+    elif entries.shape[0] == 1:
+        entry = entries.iloc[0,:]
+        if not pd.isnull(entry["gene"]):
+            return entry["gene"]
+        else:
+            return entry["gene_id"]
+    else:
+        return ','.join(entries["gene_id"].tolist())
+
+df_filt["gene_name_or_id"] = df_filt["POS"].apply(pos_to_gene_name, args=(gtf_df,))
+
+gtf_df[(gtf_df["start"]<=11000) & (gtf_df["end"]>=12000)]
+# %% CHUNK: Rearrange columns and print
+df_filt = df_filt[["sample", "CHROM", "POS", "gene_name_or_id", "REF", "alleles", "AD", "AF", "DP", "MQRS", "ANN"]]
+df_filt.to_csv("/mnt/raid1/webServer/export/amsesk/cdiff_evo_long.csv", sep=',', index=False)
+df_filt.columns
+df_filt.pivot(columns="sample", index = ["CHROM", "POS", "gene_name_or_id", "REF", "MQRS"], values="AF").to_csv("/mnt/raid1/webServer/export/amsesk/cdiff_evo_wide.csv", sep=',', index=False)
+
+
+#################################
+#################################
+
+# %% CHUNK:
+df_filt[(df_filt.sample=="Sample11.Day120")&(df_filt.POS==93516)]
+df_filt
+df_filt[(df_filt["sample"]=="Sample12.Day120")&(df_filt["POS"]==93516)]
+df_filt[(df_filt["POS"]==93516)]
+# %% Convert to long format
+df_filt_long = df_filt.explode(["alleles","AD","AF"]).rename(columns={"alleles": "allele"})
+df_filt_long = df_filt_long.reset_index(drop = True)
+
+gtf_df.columns
+# %% Assign snfEff annotations to long format based on allele column
+ann_format_columns = [re.sub(" ", "", x.strip()) for x in re.search("['](.+)[']", vcf_reader.infos["ANN"].desc).group(1).split("|")]
+ann_replace = []
+for idx,row in df_filt_long.iterrows():
+    if row["allele"] == row["REF"] or row["allele"] in ["*"]:
+        ann_replace.append(None)
+    else:
+        ann_replace.append(row["ANN"][row["allele"]])
+
+pd.Series(ann_replace).iloc[0:5]
+df_filt_long["ANN"] = pd.Series(ann_replace)
+df_filt_long["ANN_colnames"] = df_filt_long["ANN"].apply(lambda x: [f"snpEff__{xx}" for xx in ann_format_columns] if x is not None else None)
+df_filt_long["ANN_idx"] = df_filt_long["ANN"].apply(lambda x: list(range(0, len(x))) if x is not None else None)
+df_filt_long.columns
 
 # %%
+df_filt_long = df_filt_long.explode(["ANN", "ANN_idx"])
+df_filt_long = df_filt_long.explode(["ANN", "ANN_colnames"])
+df_filt_long = df_filt_long.pivot(columns="ANN_colnames", index = ["sample", "CHROM", "POS", "REF", "allele", "AD", "DP", "MQRS", "n_alleles", "AF", "ANN_idx"], values="ANN").reset_index()
+df_filt_long = df_filt_long[["sample", "CHROM", "POS", "REF", "allele", "AF", "AD", "DP", "MQRS", "n_alleles"]+[f"snpEff__{xx}" for xx in ann_format_columns]]
+df_filt_long.columns
+
+# %% Add gene names from GTF
+df_filt_long["snpEff__Gene_Name"].apply(lambda x: gtf_df[gtf_df["gene_id"]==x]["gene"][0] if x is not None else None)
+df_filt_long=df_filt_long[~pd.isnull(df_filt_long["snpEff__Allele"])]
+gtf_df.drop_duplicates()
+
+df_filt_long["snpEff__Gene_Name"].value_counts()
+
+# %% Add gene names from GTF
+gene_names = []
+gene_rename = gtf_df[["gene_id", "gene"]]
+gene_rename.columns = ["snpEff__Gene_ID", "snpEff__Gene_Name"]
+df_filt_long=df_filt_long.drop(columns="snpEff__Gene_Name").merge(gene_rename, how="left", on="snpEff__Gene_ID")
+
+df_filt_long.to_csv("/home/amsesk/figures/cdiff_evo/snp_table_noAncestor.tsv", sep="\t", index=False)
+
+
+# %% Drop modifier-class variant annotations for subset table of putatively more interesting variants
+df_filt_long_noMod = df_filt_long[df_filt_long["snpEff__Annotation_Impact"]!="MODIFIER"][["sample", "CHROM", "POS", "REF", "allele", "AF", "AD", "DP", "MQRS", "snpEff__Gene_Name"]].reset_index(drop=True)
+df_filt_long_noMod
+assert (df_filt_long_noMod[["CHROM","POS","REF","allele", "snpEff__Gene_Name"]].drop_duplicates().value_counts()==1).all()
+
+df_filt_long_noMod.pivot_table(columns="sample", index=["POS", "REF", "allele", "snpEff__Gene_Name"], values="AF").reset_index()
+# .to_csv("/home/amsesk/figures/cdiff_evo/snp_table_noAncestor_wide.tsv", index=False, sep=",")
+# df_filt_long_noMod["sample"].unique().shape
+# df_filt_long[df_filt_long["POS"]==200598]["snpEff__Gene_Name"]
+# 2800/15
+
+
+# %%
+["CHROM","POS","REF","allele"]+list(df_filt_long.columns[snpEff_column_idx])
+(df_filt_long[df_filt_long["snpEff__Annotation_Impact"]!="MODIFIER"][["CHROM","POS","REF","allele"]+list(df_filt_long.columns[snpEff_column_idx])].drop_duplicates())
+snpEff_column_idx = np.where([x.startswith("snpEff__") for x in df_filt_long.columns.values])[0]
+df_filt_long[df_filt_long["snpEff__Annotation_Impact"]!="MODIFIER"][["CHROM","POS","REF","allele"]+list(df_filt_long.columns[snpEff_column_idx])]
+d
+# %%
+
+df_filt_long.apply(lambda row: row["ANN"][row["allele"]] if row["ANN"] is not None else None, axis=1)
+df_filt
+df_filt_long
+df_filt[df_filt["n_alleles"]>2]
+df_filt.loc[120]
+df_filt["ANN"].iloc[0]
+df_filt.iloc[50:60,:]
+
 
 df_filt["POS"].unique()
+df_filt[df_filt.POS==3414401]
 df_filt_posBySample = df_filt.pivot(index="POS", columns="sample", values=["AD","DP"])
 df_filt_posBySample
+
+##################################################################
+##################################################################
+# %% STOP  {{{
+##################################################################
+##################################################################
 
 # %%
 plt_n_alleles = df_filt[["POS", "n_alleles"]].drop_duplicates()
@@ -349,6 +411,7 @@ def sliding_window(full_size, chunk_size, one_based = True):
 
 # %s
 from scipy.sparse import lil_array
+
 sp_arr = csr_array(snp_binary.values)
 sp_arr[0:1000].nnz
 
@@ -382,6 +445,7 @@ def _compute(sample, df, n_pos, window_size):
 
 # %%
 from joblib import Parallel, delayed
+
 all_samples = df_finite["sample"].unique()
 ret = Parallel(n_jobs=15)(
     delayed(_compute)(s, df, chrom_len, 1000) for s in samples
@@ -513,3 +577,60 @@ np.linspace(0,4.5,num=10)
 
 # %%
 
+
+# %% TOSS {{{
+
+    # if i>=10:
+    #     break
+#     if include is not None:
+#         if record.CHROM not in select_contigs:
+#             continue
+#     if "END" in record.INFO:
+#         block_range = range(record.POS-1, record.INFO["END"])
+#     else:
+#         block_range = range(record.start, record.end)
+#     n_pos += len(block_range)
+#     if n_pos > max(block_range)+1:
+#         n_pos -= (n_pos-(max(block_range)+1))
+#     alleles = record.alleles
+#     if len(alleles) in allele_counts:
+#         allele_counts[len(alleles)] += 1
+#     else:
+#         allele_counts[len(alleles)] = 1
+#     if len(alleles) == 2:
+#         for sample in [s for s in record.samples if re.search("(^Sample|^Ancestor)", s.sample) is not None]:
+#             ad = sample["AD"]
+#             dp = sample["DP"]
+#             if "MQRankSum" not in record.INFO:
+#                 if skip_na_mqrs:
+#                     continue
+#                 else:
+#                     mqrs = np.nan
+#             else:
+#                 mqrs = record.INFO["MQRankSum"]
+#             if ad is None:
+#                 continue
+#             s = sum(ad)
+#             if s == 0:
+#                 continue
+#                 # p = np.nan
+#                 # q = np.nan
+#             else:
+#                 p = ad[0]/s
+#                 q = ad[1]/s
+#             ldict.append({
+#                 "sample": sample.sample,
+#                 "CHROM": record.CHROM, 
+#                 "POS": record.POS,
+#                 "AD": ad,
+#                 "p": p,
+#                 "q": q,
+#                 "DP": dp,
+#                 "MQRS": mqrs,
+#                 })
+#
+
+# allele_counts
+# }}}
+
+# }}}
