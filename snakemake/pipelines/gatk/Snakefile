@@ -37,11 +37,11 @@ import numpy as np
 config = toml_config(workflow.source_path("config.toml"))
 # check_config_paths(config)
 
-FILES = [x for x in os.listdir("bam/input") if x.endswith(".bam")]
+FILES = [x for x in os.listdir("fastq_trimmed") if x.endswith("_trim.fastq.gz")]
 # RENAME_FILES = [re.sub(config.core.sample_key, r"\1_\2.fastq.gz", x) for x in FILES]
 
 SAMPLES = list(set([pmbi.util.get_substring(x, config.core.sample_pattern) for x in FILES]))
-SMIDS = {k:v for k,v in zip(SAMPLES, list(range(1, len(SAMPLES)+1)))}
+# SMIDS = {k:v for k,v in zip(SAMPLES, list(range(1, len(SAMPLES)+1)))}
 
 # localrules: link_rename_fastq
 
@@ -50,6 +50,22 @@ rule all:
         expand("depth/{sample}_depth.txt.gz", sample=SAMPLES),
         expand("gvcf/{sample}.g.vcf", sample=SAMPLES),
         expand("fig/{sample}_depth_plot.png", sample=SAMPLES),
+        "combined/combined.g.vcf",
+        # "combined/combined.vcf",
+
+rule bwa_mem:
+    input:
+        read1="fastq_trimmed/{sample}_R1_trim.fastq.gz",
+        read2="fastq_trimmed/{sample}_R2_trim.fastq.gz",
+    output:
+        bam="bam/input/{sample}.bam"
+    params:
+        cores=config.resources.threads,
+        ref=config.core.ref,
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"bwa mem -t {params.cores} {params.ref} {input.read1} {input.read2} > {output.bam}")
+        _run(input, output, wildcards, params)
 
 rule bam_sort:
     input:
@@ -69,7 +85,7 @@ rule bam_rmdups:
     run:
         def _run(input, output, wildcards, params):
             # shell(f"samtools rmdup --output-fmt BAM {input.sortbam} {output.rmdupbam}")
-            fixm_tmp = f"bam/{wildcards.sample}_sorted.fixm.bam"
+            fixm_tmp = f"bam/process/{wildcards.sample}_sorted.fixm.bam"
             shell(f"samtools fixmate -m --output-fmt BAM {input.sortbam} {fixm_tmp}")
             shell(f"samtools sort  --output-fmt BAM {fixm_tmp} > {input.sortbam}")
             shell(f"samtools markdup -r --output-fmt BAM {input.sortbam} {output.rmdupbam}")
@@ -83,7 +99,7 @@ rule bam_addrg:
         rgbam="bam/process/{sample}_sorted.rmdup.rg.bam",
     run:
         def _run(input, output, wildcards, params):
-            shell(f"samtools addreplacerg --output-fmt BAM -r ID:S1 -r LB:L1 -r SM:{SMIDS[wildcards.sample]} -o {output.rgbam} {input.rmdupbam}")
+            shell(f"samtools addreplacerg --output-fmt BAM -r ID:S1 -r LB:L1 -r SM:{wildcards.sample} -o {output.rgbam} {input.rmdupbam}")
         _run(input, output, wildcards, params)
 
 rule bam_index:
@@ -122,6 +138,23 @@ rule haplotype_caller:
             shell(f"gatk --java-options \"-Xmx{params.memory}g\" HaplotypeCaller -R {params.ref} -I {input.final_bam} -O {output.gvcf} -ERC GVCF -A DepthPerAlleleBySample -A MappingQuality -A LikelihoodRankSumTest")
         _run(input, output, wildcards, params)
 
+rule hardfilter_gvcfs:
+    input:
+        gvcf="gvcf/{sample}.g.vcf",
+    output:
+        gvcf_filterFlagged="gvcf/{sample}_filterFlagged.g.vcf",
+        gvcf_filterRemoved="gvcf/{sample}_filterRemoved.g.vcf",
+    params:
+        memory=config.resources.memory,
+        ref=config.core.ref,
+        mqrs_min=config.vcf_filter.mqrs_min,
+        dp_min=config.vcf_filter.mqrs_min,
+    run:
+        def _run(input, output, wildcards, params):
+            shell(f"gatk VariantFiltration -R {params.ref} -V {input.gvcf} -O {output.gvcf_filterFlagged} --filter-name 'mqrs_filt' --filter-expression 'MQRankSum < {params.mqrs_min}' --filter-name 'dp_filt' --filter-expression 'DP < {params.dp_min}'")
+            shell(f"vcftools --vcf {output.gvcf_filterFlagged} --stdout --remove-filtered-all --recode-INFO-all --recode > {output.gvcf_filterRemoved}")
+        _run(input, output, wildcards, params)
+
 rule depth_plot:
     input:
         depth="depth/{sample}_depth.txt.gz"
@@ -138,22 +171,35 @@ rule depth_plot:
             y = these_coords.depth.to_numpy()
             y = np.log10(y+1)
             panel.next_ax().plot(x,y, linewidth = 0.2)
+            panel.current_ax.set_title(chrom)
 
         panel.fig.savefig(output.plt)
-        
-        
 
-# rule genotype_gvcfs:
+rule combine_gvcfs:
+    input:
+        gvcfs_filtered=[f"gvcf/{sample}_filterRemoved.g.vcf" for sample in SAMPLES]
+    output:
+        combined_gvcf="combined/combined.g.vcf"
+    params:
+        memory=config.resources.memory,
+        ref=config.core.ref,
+    run:
+        def _run(input, output, wildcards, params):
+            variants = " ".join([f"--variant {gvcf}" for gvcf in input.gvcfs_filtered])
+            shell(f"gatk --java-options \"-Xmx{params.memory}g\" CombineGVCFs -R {params.ref} {variants} -O {output.combined_gvcf}")
+        _run(input, output, wildcards, params)
+
+# rule genotype_gvcf:
 #     input:
-#         gvcf="gvcf/{sample}.g.vcf",
+#         combined_gvcf="combined/combined.g.vcf"
 #     output:
-#         vcf="vcf/{sample}.vcf",
+#         combined_vcf="combined/{combined}.vcf",
 #     params:
 #         memory=config.resources.memory,
 #         ref=config.core.ref,
 #     run:
 #         def _run(input, output, wildcards, params):
-#             shell(f"gatk --java-options \"-Xmx{params.memory}g\" GenotypeGVCFs -R {params.ref} -O {output.vcf} -V {input.gvcf}")
+#             shell(f"gatk --java-options \"-Xmx{params.memory}g\" GenotypeGVCFs -R {params.ref} -O {output.combined_vcf} -V {input.combined_gvcf}")
 #         _run(input, output, wildcards, params)
-
+#
         

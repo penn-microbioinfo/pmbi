@@ -251,10 +251,11 @@ def heatmap(
     xlab,
     ylab,
     annot=None,
+    aspect="auto",
     cmap=palettable.scientific.sequential.Hawaii_20_r.mpl_colormap,
     theme=Theme(),
 ):
-    ax.imshow(matrix, cmap=cmap)
+    ax.imshow(matrix, cmap=cmap, aspect=aspect)
     if annot is not None:
         cell_text = pd.DataFrame(
             np.array(
