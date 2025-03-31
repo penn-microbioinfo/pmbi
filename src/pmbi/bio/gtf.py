@@ -1,14 +1,29 @@
 import re
 
+import copy
 import pandas as pd
 
 
 class FeatureFile(object):
-    def __init__(self, features: list[dict]):
+    def __init__(self, features: pd.DataFrame):
         self._features = features
 
-    def to_pandas(self):
-        return pd.DataFrame(self._features)
+    def __setitem__(self, key, value):
+        self._features[key] = value
+
+    def __getitem__(self, key):
+        return self._features[key]
+
+    def __repr__(self):
+        return self._features.__repr__()
+
+    def update(self, features: pd.DataFrame, inplace=False):
+        if inplace:
+            self._features = features
+        else:
+            new = copy.deepcopy(self)
+            new._features = features
+            return new
 
     @staticmethod
     def _parse_attributes_string(attribute_str: str):
@@ -36,7 +51,12 @@ class FeatureFile(object):
         return attrs
 
     def attributes(self):
-        return pd.DataFrame(self.to_pandas()["attributes"].apply(self._parse_attributes_string).tolist())
+        return pd.DataFrame(self["attributes"].apply(self._parse_attributes_string).tolist())
+
+    def get_attribute(self, key):
+        attrs = self.attributes()
+        return attrs.apply(lambda row: row[key] if key in row else pd.NA, axis=1)
+
 
     @staticmethod
     def from_gtf(handle):
@@ -57,7 +77,7 @@ class FeatureFile(object):
                 d["frame"] = spl[7]
                 d["attributes"] = spl[8]
                 ldict.append(d)
-        return FeatureFile(features = ldict)
+        return FeatureFile(features = pd.DataFrame(ldict))
         
 def parse_gtf(handle):
     ldict = []
