@@ -21,23 +21,22 @@ import pmbi.plotting as pmbip
 importlib.reload(PSL)
 importlib.reload(pmbip)
 
-# %%
-REF_PREFIX = "/stor/home/ka33933/work/ref/loci_ref/"
-QUE_PREFIX = "/stor/home/ka33933/work/Run3/fastq/fasta"
+# %% CHUNK: Change to working directory 
+os.chdir("/storage/anat/")
 
-tar = "s0004895-augustus-gene-0.9-mRNA-1:1-401"
-tar_seq = None
+# %% CHUNK: Read in the reference sequences
+# tar = "s0004895-augustus-gene-0.9-mRNA-1:1-401"
+# tar_seq = None
 tars = {}
-for rec in SeqIO.parse(
-    os.path.join(REF_PREFIX, "Unique_1388_nov2019_noDegenerateNucl.fna"), "fasta"
-):
+for rec in SeqIO.parse("loci_ref/Unique_1388_nov2019_noDegenerateNucl.fna", "fasta"):
     tars[rec.id] = str(rec.seq)
 
-que = "A00572:174:HGGKNDRXX:1:2101:3215:1078"
-que_seq = None
+# %% CHUNK: Read in the query sequences
+# que = "A00572:174:HGGKNDRXX:1:2101:3215:1078"
+# que_seq = None
 ques = {}
 # with gzip.open(os.path.join(QUE_PREFIX, "AES537_R1.fa.gz"), 'rb') as gzfa:
-with open(os.path.join(QUE_PREFIX, "AES537_R1.fa"), "r") as fa:
+with gzip.open("fasta/AES103_R1.fa.gz", "rt") as fa:
     for rec in SeqIO.parse(fa, "fasta"):
         ques[rec.id] = str(rec.seq)
 
@@ -52,16 +51,28 @@ with open(os.path.join(QUE_PREFIX, "AES537_R1.fa"), "r") as fa:
 # }}}
 
 
-# %%
+# %% CHUNK: Read in the PSL files
 fs = [
-    "/stor/home/ka33933/work/Run3/blat/AES537_R1_blat.psl.gz",
-    "/stor/home/ka33933/work/Run3/blat/AES537_R2_blat.psl.gz",
+    "psl/AES103_R1_blat.psl.gz",
+    "psl/AES103_R2_blat.psl.gz",
 ]
 ldict = []
 with gzip.open(fs[0], "rt") as stream:
     pa = PSL.PslAln.from_file(stream, target_seqs=tars, query_seqs=ques)
 
 
+# %%
+importlib.reload(PSL)
+with gzip.open(fs[0], "rt") as stream:
+    while not stream.readline().startswith("-"):
+        continue
+    for line in stream:
+        print(line)
+        p=PSL.PslAlignment.from_str(line)
+        break
+
+p.strand
+# %%
 # %% CHUNK: Functions that should be moved into one of the PSL-related classes {{{
 def leading_query_r(aln):
     l = aln.leading_query_pos()
