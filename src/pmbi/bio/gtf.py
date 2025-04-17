@@ -1,10 +1,43 @@
 import re
+import io
 
 import copy
 import pandas as pd
 
 
 class FeatureFile(object):
+    """
+    A class to represent and manipulate feature data from a GTF file.
+
+    Attributes:
+    ----------
+    _features : pd.DataFrame
+        A DataFrame containing the features data.
+
+    Methods:
+    -------
+    __setitem__(key, value)
+        Sets the value of a feature in the DataFrame.
+    
+    __getitem__(key)
+        Retrieves the value of a feature from the DataFrame.
+    
+    __repr__()
+        Returns a string representation of the DataFrame.
+    
+    update(features: pd.DataFrame, inplace=False)
+        Updates the features DataFrame with new data, optionally in place.
+    
+    attributes()
+        Parses and returns the attributes GTF column as a DataFrame.
+    
+    get_attribute(key)
+        Retrieves a specific attribute from the parsed attributes column.
+    
+    from_gtf(handle)
+        Creates a FeatureFile object from a GTF file handle.
+    """
+
     def __init__(self, features: pd.DataFrame):
         self._features = features
 
@@ -79,7 +112,20 @@ class FeatureFile(object):
                 ldict.append(d)
         return FeatureFile(features = pd.DataFrame(ldict))
         
-def parse_gtf(handle):
+def parse_gtf(handle: io.TextIOWrapper) -> pd.DataFrame:
+    """
+    Parses a GTF file from a given file handle and returns a DataFrame.
+
+    Parameters
+    ----------
+    handle : io.TextIOWrapper
+        A file handle to the GTF file to be parsed.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the parsed GTF data.
+    """
     ldict = []
     for line in handle:
         if not line.startswith("#"):

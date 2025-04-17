@@ -76,6 +76,12 @@ gtf_attr.to_csv(
 )
 
 # %%
+# gtf[gtf.attributes()["gene_id"].isin(["H3006_RS11630", "H3006_RS11635"])]
+# gtf_attr
+# gtf[gtf.attributes()["gene_id"].isin(["H3006_RS11630", "H3006_RS11635"])]
+# df_filt_long[df_filt_long["resident_gene_id"].str.contains(",")].POS.unique().shape
+
+# %%
 
 # %% CHUNK: Do initial reading a filtering of GCVF {{{
 # vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
@@ -161,8 +167,8 @@ control_samples = [
 ancestor_sample = "Ancestor.Day0"
 
 # %% CHUNK: Filter out the Ancestor or not
-# filter_out_samples = control_samples + [ancestor_sample]
-filter_out_samples = control_samples
+filter_out_samples = control_samples + [ancestor_sample]
+# filter_out_samples = control_samples
 
 # %% CHUNK: Drop variants that are only variant in the control samples
 df_ad = df_ad[~df_ad.apply(pvcf.variant_only_in, axis=1, args=(control_samples,))]
@@ -345,6 +351,11 @@ df_filt_long.to_csv(
     sep="\t",
     index=False,
 )
+# %%
+pd.options.display.max_rows=100
+pd.set_option("display.max_rows", 100)
+df_filt_long[(df_filt_long["POS"]== 83429) & (df_filt_long["snpEff__Annotation_Impact"]=="LOW")][["sample","snpEff__Annotation_Impact"]]
+df_filt_long.columns
 
 
 ##################################################################
