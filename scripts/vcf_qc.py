@@ -17,6 +17,7 @@ import pmbi.bio.vcf as pvcf
 import pmbi.plotting as pmbip
 
 pd.set_option("display.max_rows", 100)
+pd.set_option("display.max_rows", 100)
 importlib.reload(pmbip)
 importlib.reload(pgtf)
 importlib.reload(pvcf)
@@ -44,10 +45,11 @@ if include is not None:
 from Bio import SeqIO
 
 ref = SeqIO.parse(
-    "/home/amsesk/super1/cdiff_evo/ref/GCF_021378415.1_ASM2137841v1_genomic.fna",
+    # "/home/amsesk/super1/cdiff_evo/ref/GCF_021378415.1_ASM2137841v1_genomic.fna",
+    "/Users/amsesk/penn-microbioinfo/cdiff_evo/ref/GCF_021378415.1_ASM2137841v1_genomic.fna",
     "fasta",
 )
-
+[len(x.seq) for x in ref]
 # %% CHUNK: Parse the reference protein fasta
 with gzip.open(
     "/home/amsesk/pkgs/snpEff/data/cdiff_CD196/protein.fa.gz", "rt"
@@ -86,7 +88,8 @@ gtf_attr.to_csv(
 # %% CHUNK: Do initial reading a filtering of GCVF {{{
 # vcf_reader = vcf.Reader(open("/home/amsesk/super1/cdiff_evo/combined/combined.g.vcf", 'r'))
 vcf_reader = vcf.Reader(
-    open("/home/amsesk/super1/cdiff_evo/combined/combined.snpeff.g.vcf", "r")
+    # open("/home/amsesk/super1/cdiff_evo/combined/combined.snpeff.g.vcf", "r")
+    open("/Users/amsesk/penn-microbioinfo/cdiff_evo/combined.snpeff.g.vcf", "r")
 )
 include = "NZ_CP059592.1"
 skip_na_mqrs = False
@@ -156,6 +159,7 @@ df["ANN"] = df["ANN"].apply(pvcf.split_snpeff_annots)
 df["ANN"].iloc[0]
 df_ad = df.pivot(index="POS", columns="sample", values="AD")
 n_var_total = df_ad.shape[0]
+df["sample"].unique()
 
 # %% CHUNK: Define some sample pools
 control_samples = [
@@ -250,6 +254,9 @@ df_filt["AF"] = df_filt["AD"].apply(pvcf.ad_to_af)
 na_af_at = np.where([sum(x) == 0 for x in df_filt["AD"]])
 na_af_at
 df_filt.iloc[154, :]
+df_filt.columns
+df_filt[["sample","POS"]]
+
 
 # %% Convert to long format
 df_filt_long = (
@@ -358,6 +365,79 @@ df_filt_long[(df_filt_long["POS"]== 83429) & (df_filt_long["snpEff__Annotation_I
 df_filt_long.columns
 
 
+# %% SNP density
+# %% FUNC: Return lists of intergers constituting sliding windows {{{
+def sliding_window(full_size, chunk_size, step_size=1, one_based=True):
+    if one_based:
+        raise NotImplementedError
+        # for start in np.arange(1, full_size+1, 1):
+        #     stop = start+chunk_size+1
+        #     if stop>(full_size+1):
+        #         break
+        #     else:
+        #         # chunks.append(np.arange(start, stop, 1))
+        #         yield np.arange(start, stop, 1)
+    else:
+        for start in np.arange(0, full_size, step_size):
+            stop = start + chunk_size
+            if stop == full_size:
+                break
+            else:
+                # yield np.arange(start, stop, 1)
+                yield (start, stop)
+
+# %% 
+def is_all_ref(afs):
+    is_ref = list()
+    for af in afs:
+        if af[0]==1.0:
+            is_ref.append(True)
+        else:
+            is_ref.append(False)
+    return pd.Series(is_ref)
+                
+def pos_in_range(pos, r): 
+    return pos>=min(r) and pos<max(r)
+
+# %%
+df_filt[["sample_num", "sample_day"]] = df_filt["sample"].str.split(".", expand=True)
+colors = pd.read_csv("/Users/amsesk/penn-microbioinfo/cdiff_evo/colors.tsv", sep="\t")
+colors["sample"]=colors["sample"].str.replace("SM004_", "Sample")
+colors = colors.set_index("sample")
+allsamp = df_filt["sample"].unique()
+
+
+# %%
+max_snp_densities = []
+for s in allsamp:
+    sn = s.split(".")[0]
+    print(s)
+    sample_has = df_filt[(df_filt["sample"] == s) & (~is_all_ref(df_filt["AF"]))].POS.reset_index(drop=True)
+    window_size=10000
+    dens = []
+    for i,(start,stop) in enumerate(sliding_window(full_size=ref_len, chunk_size=window_size, step_size=10, one_based=False)):
+        if i%10000==0:
+            print(i)
+        snp_in = sample_has.apply(lambda pos: pos>=start and pos<stop )
+        dens.append(np.where(snp_in)[0].shape[0]/window_size)
+    dens_arr = np.array(dens)
+    dens = pd.DataFrame({"pos": range(0,len(dens_arr)), "snp_density": dens_arr})
+    dens["pos"] = dens["pos"]*10
+    max_snp_densities.append(dens["snp_density"].max())
+    panel = pmbip.Paneler(1,1,(5,2), dpi=800)
+    ax = panel.next_ax()
+    ax.plot(dens["pos"], dens["snp_density"], linewidth=0.75, c=colors.loc[sn,"color"])
+    # ax.set_ylim((0,0.0085))
+    ax.set_ylabel("SNP Density")
+    ax.set_xlabel("Position")
+    ax.set_title(s)
+    panel.fig.savefig(f"/Users/amsesk/penn-microbioinfo/cdiff_evo/snp_density_figs/diff_y/{s}_density_plts.pdf")
+
+
+
+# sdf = df_filt[df_filt["sample"]=="Sample1.Day1"]
+# is_all_ref(sdf["AF"])
+# max(max_snp_densities)
 ##################################################################
 ##################################################################
 # %% STOP  {{{
