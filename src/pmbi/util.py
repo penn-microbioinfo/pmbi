@@ -98,3 +98,11 @@ def n_intersect_table(
     index = pd.Index(groups)
     matrix = pd.DataFrame(matrix, index=index, columns=index)
     return matrix
+
+# %% FUNC: Check if we are in an interactive python session or not
+def is_ipython():
+    try:
+        _ipy = get_ipython()
+        return True
+    except NameError:
+        return False
