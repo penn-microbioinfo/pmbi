@@ -1,5 +1,11 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
+import os
+
+WD=Path("/Users/amsesk/penn-microbioinfo/cdiff_evo/")
+os.chdir(WD)
+
 # %%
 # pd.options.display.max_rows=100
 # pd.set_option("display.max_rows", 100)
@@ -46,8 +52,7 @@ def pos_in_range(pos, r):
     return pos>=min(r) and pos<max(r)
 # }}} 
 
-# }}} 
-
+# %% FUNC: What is the reference allele frequency of a sample+position? {{{
 def ref_af(df, sample, pos):
     sub = df[(df["sample"]==sample) & (df["POS"]==pos)]
     ref_af = sub[sub["REF"]==sub["allele"]]
@@ -56,26 +61,49 @@ def ref_af(df, sample, pos):
     else:
         return ref_af["AF"].iloc[0]
 
+# }}} 
+
+# }}} 
 
 # %% CHUNK: Load snp table {{{
-snptab = pd.read_csv("/home/amsesk/figures/cdiff_evo/cdiff_evo_snp_table_long.tsv", sep="\t")
+snptab = pd.read_csv("cdiff_evo_snp_table_long.tsv", sep="\t")
 snptab=snptab[["sample", "POS", "REF", "allele", "AF"]].drop_duplicates()
-snptab[["sample_num", "sample_day"]] = snptab["sample"].str.split(".", expand=True)
+# snptab[["sample_num", "sample_day"]] = snptab["sample"].str.split(".", expand=True)
 # }}}
 
 # %% CHUNK: Load subham's color choices {{{
-colors = pd.read_csv("/home/amsesk/super1/cdiff_evo/colors.tsv", sep="\t")
+colors = pd.read_csv("colors.tsv", sep="\t")
 colors["sample"]=colors["sample"].str.replace("SM004_", "Sample")
 colors = colors.set_index("sample")
 
 # }}}
+# %%
+# snptab
+# snptab.groupby(["sample","POS","REF"]).apply(lambda x: list(x["AF"]))
+ldict = []
+for _idx,s,p in snptab[["sample", "POS"]].drop_duplicates().itertuples():
+    ra = ref_af(snptab, sample=s, pos=p)
+    if ra == 1.0:
+        is_all_ref=True
+    else:
+        is_all_ref=False
+    ldict.append({
+        "sample": s,
+        "POS": p,
+        "is_all_ref": is_all_ref
+        })
+
+# %%
+iar = pd.DataFrame(ldict)
+iar
+
 
 # %%
 max_snp_densities = []
 for s in snptab["sample"].unique():
     sn = s.split(".")[0]
     print(s)
-    sample_has = df_filt[(df_filt["sample"] == s) & (~is_all_ref(df_filt["AF"]))].POS.reset_index(drop=True)
+    sample_has = iar[(iar["sample"] == s) & (iar["is_all_ref"])].POS.reset_index(drop=True)
     window_size=10000
     dens = []
     for i,(start,stop) in enumerate(sliding_window(full_size=ref_len, chunk_size=window_size, step_size=10, one_based=False)):
