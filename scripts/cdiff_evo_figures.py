@@ -1,9 +1,18 @@
-import pandas as pd
-import numpy as np
-from pathlib import Path
+import gzip
 import os
+from pathlib import Path
+import shelve
+import copy
 
-WD=Path("/Users/amsesk/penn-microbioinfo/cdiff_evo/")
+import numpy as np
+import pandas as pd
+from Bio import SeqIO
+from joblib import Parallel, delayed
+
+from pmbi.bio.snpeff import snpEffRef
+import pmbi.plotting as pmbip
+
+WD=Path("/home/amsesk/super1/cdiff_evo/")
 os.chdir(WD)
 
 # %%
@@ -66,8 +75,14 @@ def ref_af(df, sample, pos):
 # }}} 
 
 # %% CHUNK: Load snp table {{{
-snptab = pd.read_csv("cdiff_evo_snp_table_long.tsv", sep="\t")
+# snptab = pd.read_csv("cdiff_evo_snp_table_long.tsv", sep="\t")
+# shelve_outname="snp_density_arrays_full.shelve"
+
+snptab = pd.read_csv("cdiff_evo_snp_table_long_subtractAnc.tsv", sep="\t")
+shelve_outname="snp_density_arrays_subtractAnc.shelve"
+
 snptab=snptab[["sample", "POS", "REF", "allele", "AF"]].drop_duplicates()
+snptab["POS"].unique().shape
 # snptab[["sample_num", "sample_day"]] = snptab["sample"].str.split(".", expand=True)
 # }}}
 
@@ -99,22 +114,79 @@ iar
 
 
 # %%
+ref = snpEffRef(Path("ref/cdiff_CD196/"))
+
+with gzip.open(ref.sequences, "rt") as fa_handle:
+    nucl_ref = {s.name: str(s.seq) for s in SeqIO.parse(fa_handle, "fasta")}
+
+ref_len = len(nucl_ref["NZ_CP059592.1"])
+
+# %%
+def _compute(sample_has, start, stop):
+    snp_in = sample_has.apply(lambda pos: pos>=start and pos<stop )
+    return np.where(snp_in)[0].shape[0]
 max_snp_densities = []
+n_jobs=16
+window_size=10000
+step_size=10
+d = shelve.open(shelve_outname)
 for s in snptab["sample"].unique():
-    sn = s.split(".")[0]
     print(s)
-    sample_has = iar[(iar["sample"] == s) & (iar["is_all_ref"])].POS.reset_index(drop=True)
-    window_size=10000
-    dens = []
-    for i,(start,stop) in enumerate(sliding_window(full_size=ref_len, chunk_size=window_size, step_size=10, one_based=False)):
+    sn = s.split(".")[0]
+    sample_has = iar[(iar["sample"] == s) & (~iar["is_all_ref"])].POS.reset_index(drop=True)
+    snp_counts = Parallel(n_jobs=n_jobs)(
+        delayed(_compute)(sample_has=sample_has, start=start, stop=stop) for start,stop in sliding_window(full_size=ref_len, chunk_size=window_size, step_size=step_size, one_based=False)
+    )
+    snp_dens = np.array(snp_counts)/window_size
+    snp_dens = pd.DataFrame({"pos": range(0,len(snp_dens)), "snp_density": snp_dens})
+    snp_dens["pos"] = snp_dens["pos"]*step_size
+    d[s] = copy.deepcopy(snp_dens)
+d.close()
+
+##########################
+# %%
+##########################
+
+snp_dens_full = shelve.open("snp_density_arrays_full.shelve")
+snp_dens_sub = shelve.open("snp_density_arrays_subtractAnc.shelve")
+
+np.where(snp_dens_full["Sample1.Day1"]["snp_density"]!=snp_dens_sub["Sample1.Day120"]["snp_density"])[0].shape
+list(snp_dens_full.keys())
+# %%
+for s in list(snp_dens_sub.keys()):
+    sn = s.split(".")[0]
+    full=snp_dens_full[s].rename(columns={"snp_density": "snp_density_full"})
+    sub=snp_dens_sub[s].rename(columns={"snp_density": "snp_density_sub"})
+    merged = pd.merge(left=full, right=sub, how="outer", on="pos")
+    w=np.where(merged["snp_density_full"]!=merged["snp_density_sub"])
+    print(w)
+    panel = pmbip.Paneler(1,1,(5,2), dpi=800)
+    ax = panel.next_ax()
+    ax.plot(merged["pos"], merged["snp_density_full"], linewidth=0.75, c=colors.loc[sn,"color"], alpha=0.50, label="including ancestral")
+    ax.plot(merged["pos"], merged["snp_density_sub"], linewidth=0.75, c=colors.loc[sn,"color"], alpha=1.0, label="excluding ancestral")
+    ax.set_ylabel("SNP Density")
+    ax.set_xlabel("Position")
+    ax.set_title(s)
+    ax.legend(loc="upper right")
+    panel.fig.savefig(f"/home/amsesk/figures/cdiff_evo/figuers/snp_density_plots/withAnc/{s}_snp_density_withAnc.pdf")
+
+# w=np.where(merged.apply(lambda row: row["snp_density_full"]!=row["snp_density_sub"], axis=1))[0]
+# merged.iloc[w,:]
+# %%
+    for i,(start,stop) in enumerate():
         if i%10000==0:
             print(i)
         snp_in = sample_has.apply(lambda pos: pos>=start and pos<stop )
         dens.append(np.where(snp_in)[0].shape[0]/window_size)
+
     dens_arr = np.array(dens)
     dens = pd.DataFrame({"pos": range(0,len(dens_arr)), "snp_density": dens_arr})
     dens["pos"] = dens["pos"]*10
     max_snp_densities.append(dens["snp_density"].max())
+    break
+
+# %%
+
     panel = pmbip.Paneler(1,1,(5,2), dpi=800)
     ax = panel.next_ax()
     ax.plot(dens["pos"], dens["snp_density"], linewidth=0.75, c=colors.loc[sn,"color"])

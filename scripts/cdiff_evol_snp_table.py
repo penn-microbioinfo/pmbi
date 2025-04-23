@@ -18,31 +18,12 @@ import pmbi.bio.gtf as pgtf
 import pmbi.bio.vcf as pvcf
 import pmbi.plotting as pmbip
 from pmbi.util import is_ipython
+from pmbi.bio.snpeff import snpEffRef
 
 pd.set_option("display.max_rows", 100)
 importlib.reload(pmbip)
 importlib.reload(pgtf)
 importlib.reload(pvcf)
-
-# %% FUNC: Class for checking and handling snpEff reference paths {{{
-class snpEffRef(object):
-    def __init__(self, refdir: Path):
-        self.refdir = refdir
-        self.sequences, self.genes, self.cds, self.proteins = self._parse_refdir(refdir)
-    @staticmethod
-    def _parse_refdir(refdir):
-        expected_files = ["sequences.fa.gz",
-                          "genes.gtf.gz",
-                          "cds.fa.gz",
-                          "protein.fa.gz"
-                          ]
-        fs = [f.name for f in refdir.iterdir()]
-        if any([e not in fs for e in expected_files]):
-            raise OSError("Missing files in snpEff reference directory")
-        else:
-            return tuple([refdir.joinpath(e) for e in expected_files])
-
-# }}}
 
 # %% FUNC: Get gene ID from GTF dataframe based on position {{{
 def gene_id_from_pos(pos, gtf_df):
