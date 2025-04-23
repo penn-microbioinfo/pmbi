@@ -1,15 +1,17 @@
-
+import pandas as pd
+import numpy as np
 # %%
-pd.options.display.max_rows=100
-pd.set_option("display.max_rows", 100)
-df_filt_long[(df_filt_long["POS"]== 83429) & (df_filt_long["snpEff__Annotation_Impact"]=="LOW")][["sample","snpEff__Annotation_Impact"]]
-df_filt_long.columns
+# pd.options.display.max_rows=100
+# pd.set_option("display.max_rows", 100)
+# df_filt_long[(df_filt_long["POS"]== 83429) & (df_filt_long["snpEff__Annotation_Impact"]=="LOW")][["sample","snpEff__Annotation_Impact"]]
+# df_filt_long.columns
 
-# %% SNP density
-# %% FUNC: Return lists of intergers constituting sliding windows {{{
+# %% CHUNK: FUNCTIONS {{{
+# %% FUNC: Return start and stop positions constituting sliding windows over a range of [0,full_size] {{{
 def sliding_window(full_size, chunk_size, step_size=1, one_based=True):
     if one_based:
         raise NotImplementedError
+        # {{{
         # for start in np.arange(1, full_size+1, 1):
         #     stop = start+chunk_size+1
         #     if stop>(full_size+1):
@@ -17,6 +19,7 @@ def sliding_window(full_size, chunk_size, step_size=1, one_based=True):
         #     else:
         #         # chunks.append(np.arange(start, stop, 1))
         #         yield np.arange(start, stop, 1)
+        # }}}
     else:
         for start in np.arange(0, full_size, step_size):
             stop = start + chunk_size
@@ -25,8 +28,9 @@ def sliding_window(full_size, chunk_size, step_size=1, one_based=True):
             else:
                 # yield np.arange(start, stop, 1)
                 yield (start, stop)
+# }}} 
 
-# %% 
+# %% FUNC: Given a dataframe column with lists of allele frequencies, return True if the first allele frequency (the reference allele) is at 100% {{{
 def is_all_ref(afs):
     is_ref = list()
     for af in afs:
@@ -35,21 +39,40 @@ def is_all_ref(afs):
         else:
             is_ref.append(False)
     return pd.Series(is_ref)
+# }}}
                 
+# %% FUNC: Is a position in between a start and stop position? {{{
 def pos_in_range(pos, r): 
     return pos>=min(r) and pos<max(r)
+# }}} 
 
-# %%
-df_filt[["sample_num", "sample_day"]] = df_filt["sample"].str.split(".", expand=True)
-colors = pd.read_csv("/Users/amsesk/penn-microbioinfo/cdiff_evo/colors.tsv", sep="\t")
+# }}} 
+
+def ref_af(df, sample, pos):
+    sub = df[(df["sample"]==sample) & (df["POS"]==pos)]
+    ref_af = sub[sub["REF"]==sub["allele"]]
+    if ref_af.shape[0] > 1:
+        raise ValueError("More than 1 row where REF==allele")
+    else:
+        return ref_af["AF"].iloc[0]
+
+
+# %% CHUNK: Load snp table {{{
+snptab = pd.read_csv("/home/amsesk/figures/cdiff_evo/cdiff_evo_snp_table_long.tsv", sep="\t")
+snptab=snptab[["sample", "POS", "REF", "allele", "AF"]].drop_duplicates()
+snptab[["sample_num", "sample_day"]] = snptab["sample"].str.split(".", expand=True)
+# }}}
+
+# %% CHUNK: Load subham's color choices {{{
+colors = pd.read_csv("/home/amsesk/super1/cdiff_evo/colors.tsv", sep="\t")
 colors["sample"]=colors["sample"].str.replace("SM004_", "Sample")
 colors = colors.set_index("sample")
-allsamp = df_filt["sample"].unique()
 
+# }}}
 
 # %%
 max_snp_densities = []
-for s in allsamp:
+for s in snptab["sample"].unique():
     sn = s.split(".")[0]
     print(s)
     sample_has = df_filt[(df_filt["sample"] == s) & (~is_all_ref(df_filt["AF"]))].POS.reset_index(drop=True)
