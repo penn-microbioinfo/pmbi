@@ -4,25 +4,20 @@ import subprocess
 from typing import Iterator, Optional
 from io import StringIO
 
-def stream_output(
+def Popen_stream(
     cmd: list[str],
-    buffer: Optional[StringIO] = None,
     **kwargs
 ) -> Iterator[str]:
     """
-    Stream subprocess output to both a buffer and yield lines.
+    Yeild subprocess.Popen stdout/stderr 
     
     Args:
         cmd: Command list to execute
-        buffer: Optional StringIO buffer to capture output
         **kwargs: Additional kwargs passed to subprocess.Popen
         
     Yields:
         Output lines as they become available
     """
-    if buffer is None:
-        buffer = StringIO()
-        
     with subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -37,5 +32,4 @@ def stream_output(
                 break
                 
             if line:
-                buffer.write(line)
                 yield line.rstrip('\n')
