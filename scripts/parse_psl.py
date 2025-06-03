@@ -1,6 +1,7 @@
+
+import gc
 import gzip
 import importlib
-import itertools
 import os
 import re
 from collections import namedtuple
@@ -11,7 +12,7 @@ import numpy as np
 import palettable
 import pandas as pd
 from Bio import SeqIO
-from Bio.Align.psl import AlignmentIterator
+from toolz import *
 
 import pmbi.bio.aln.psl as PSL
 import pmbi.bio.dna
@@ -57,8 +58,169 @@ fs = [
     "psl/AES103_R2_blat.psl.gz",
 ]
 ldict = []
+importlib.reload(PSL)
 with gzip.open(fs[0], "rt") as stream:
-    pa = PSL.PslAln.from_file(stream, target_seqs=tars, query_seqs=ques)
+    pa = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques, n=100000)
+
+# %%
+importlib.reload(PSL)
+ta = PSL.TargetAlignments(pac=pac, target='annotation-ENSACAG00000028667:3078-3478')
+
+ta.target_coverage()
+# %%
+n_mm=list()
+all_mm = list()
+ra = list()
+nucl2int = {
+    "N": 0,
+    "A": 1,
+    "T": 2,
+    "C": 3,
+    "G": 4,
+}
+for a in ta.rows:
+    mm = pipe(map(lambda b: b.mismatches(a.qSeq, a.tSeq), a._blocks()), concat, list)
+    all_mm.append(mm)
+    # mm_qBase = [x.queryBase for x in mm]
+    # tar_pos = [x.targetPos for x in mm]
+    # tar_arr = np.array([np.nan]*len(a.tSeq))
+    # for ti in range(a.tStart,a.tEnd):
+    #     tar_arr[ti] = nucl2int[a.tSeq[ti]]
+    # for m in mm:
+    #     tar_arr[m.targetPos] = nucl2int[m.queryBase]
+    # ra.append(tar_arr)
+
+# %%
+panel = pmbip.Paneler(4,5,figsize=(12,16))
+TARS = pd.Series([x.tName for x in pa.rows]).value_counts()[0:20].index
+with gzip.open(fs[0], "rt") as stream:
+    pac = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques, n=None, targetSeq_include = TARS.tolist())
+
+# %%
+for TAR in TARS:
+    print(TAR)
+    ta = PSL.TargetAlignments(pac=pac, target=TAR)
+    all_mm = list()
+    for a in ta.rows:
+        mm = pipe(map(lambda b: b.mismatches(a.qSeq, a.tSeq), a._blocks()), concat, list)
+        all_mm.append(mm)
+    print(f"{TAR} - tcov")
+    tcov = ta.target_coverage()
+    print(f"{TAR} - mm_vc")
+    mm_vc = pd.DataFrame(pipe(all_mm, concat, list))["targetPos"].value_counts()
+    print(f"{TAR} - mm_plt_p_mm")
+    # plt_p_mm = pd.DataFrame(index=range(0,len(ta.tSeq))).join(mm_vc).fillna(0).join(pd.DataFrame({"cov":tcov})).assign(prop_mm = lambda r: r["count"]/r["cov"])
+    queryBaseCounts = pd.DataFrame(pipe(all_mm, concat, list)).groupby(["targetPos", "queryBase"]).size().reset_index(name="Count").pivot_table(values="Count", columns="queryBase", index="targetPos")
+    mm_queryBase_prop = pd.DataFrame({"cov":tcov}).join(queryBaseCounts).reset_index(drop=False).rename(columns={"index": "targetPos"}).fillna(0).melt(id_vars=["targetPos", "cov"]).sort_values("targetPos").assign(prop_mm = lambda r: r["value"]/r["cov"])
+    qB = mm_queryBase_prop["variable"].unique()
+    mm_queryBase_prop_wide = mm_queryBase_prop.pivot_table(values = "prop_mm", index="targetPos", columns="variable")
+    print(f"{TAR} - bar")
+    ax = panel.next_ax()
+    bot = pd.Series([0]*len(ta.tSeq))
+    for b in qB:
+        ax.bar(x=mm_queryBase_prop_wide.index, height=mm_queryBase_prop_wide[b], bottom=bot, width=1)
+        bot = bot+mm_queryBase_prop_wide[b]
+
+panel.fig.savefig("/storage/anat/figures/targetPos_hm.pdf")
+mm_queryBase_prop
+len(ta.tSeq)
+queryBaseCounts
+len(tcov)
+# %%
+ta.rows[156]._aln_repr_blocks()
+panel = pmbip.Paneler(1,1,figsize=(6,6))
+panel.fig.savefig("/storage/anat/figures/targetPos_hm.pdf")
+
+# %%
+from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
+
+Z = linkage(X, method='ward') 
+Z
+
+# %%
+# np.apply_along_axis(lambda x: np.where(np.isnan(x))
+X = np.stack(ra)
+alnmat = pd.DataFrame(X)
+panel = pmbip.Paneler(1,2,figsize=(6,6))
+# dn = dendrogram(Z, ax=panel.next_ax())
+# pmbip.heatmap(alnmat.iloc[map(int, dn["ivl"]),], ax=panel.next_ax(), xlab="targetPos", ylab="aln")
+pmbip.heatmap(alnmat, ax=panel.next_ax(), xlab="targetPos", ylab="aln")
+# panel.next_ax().bar(x=list(range(0,len(sums))), height=sums, width=1)
+panel.fig.savefig("/storage/anat/figures/targetPos_hm.pdf")
+
+# %%
+
+
+
+
+
+
+pipe([mm.queryBase for mm in concat(all_mm) if mm.targetPos==12], pd.Series).value_counts()
+pipe(map(lambda mms: [mm.targetPos for mm in mms], all_mm), concat, pd.Series).value_counts()
+apply(len, all_mm)
+[mm.targetPos for mm in all_mm[2]]
+len(pa_sub)
+len(all_mm)
+all_mm[0]
+
+# %%
+for idx,pa in enumerate(pa_sub):
+    blks = pa._blocks()
+    for b in blks:
+        if b.q_insert_bases > 0 and b.t_insert_bases > 0:
+            print(idx)
+
+print(pa_sub[121404])
+pa_sub[121404].show()
+# %%
+for b in concat(map(lambda pa: pa._blocks(), pa_sub)):
+    if b.q_insert_bases > 0 and b.t_insert_bases > 0:
+        print(b)
+
+# %%
+all_mm[2]
+pa_sub[2].show()
+pa_sub[2]._aln_repr_blocks()
+pa_sub[2]._blocks()[0].mismatches(qSeq, t)
+
+
+# pa_sub[2].show()
+
+# n_mm
+
+# %%
+type(pa.rows[1])
+pa.rows[1w
+].inner["qSeq"]
+type(tars)
+
+a = pa.rows[1]
+print(a)
+a.qStarts
+a.tStarts
+a.blockSizes
+a.tSeq
+a.misMatches
+prinjt(a._blocks()[1].mismatches(a.qSeq, a.tSeq))
+print(a._blocks()[0].q_gapped(a.qSeq))
+print(a._blocks()[0].t_gapped(a.tSeq))
+a.show()
+a._aln_repr_blocks()
+a._fields()
+# %%
+blks = a._blocks()
+qss = list(map(lambda b: b.q_gapped(a.qSeq), a._blocks()))
+list(itertools.accumulate(qss))
+list(qss)
+list(itertools.accumulate(a._blocks(), lambda l,c: l.q_gapped(a.qSeq) + c.q_gapped(a.qSeq)))
+
+# %%
+ss = ""
+for b in blks:
+    ss += b.q_gapped(a.qSeq)
+
+print(ss)
+
 
 
 # %%
