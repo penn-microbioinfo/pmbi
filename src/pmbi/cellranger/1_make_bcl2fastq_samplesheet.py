@@ -4,19 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from pmbi.config import import_config
-
-class SheetHandler(object):
-    def __init__(self, path: Path):
-        self.path = path
-        self.sheet = None
-        if self.path.suffix == ".xlsx":
-            self.sheet =  pd.read_excel(self.path) 
-        elif self.path.suffix.lower() == ".csv":
-            self.sheet = pd.read_csv(self.path, sep=",")
-        elif self.path.suffix.lower() == ".tsv":
-            self.sheet = pd.read_csv(self.path, sep="\t")
-        else:
-            raise IOError(f"Unrecognized sheet filename extension {self.path.suffix}")
+from pmbi.file_handlers import SheetHandler
 
 if __name__ == "__main__":
 # %% CHUNK: Argument parser {{{
@@ -137,7 +125,8 @@ if __name__ == "__main__":
     samplesheet = merged[
         [config.metadata.colnames.library_name, "i7", f"i5_workflow_{args.workflow}"]
     ]
-    samplesheet.columns = ["Sample_ID", "Index1", "Index2"]
+    # TODO: Put function somewhere to validate these column names prior to demux
+    samplesheet.columns = ["Sample_ID", "index", "index2"]
 
     with open(args.output, "w") as ss:
         ss.write("[Data]\n")
