@@ -28,8 +28,117 @@ def get_run_id(rundir: Path, tag: str = "BaseSpaceRunId"):
     return run_id
 
 
-def validate_sample_sheet():
-    raise NotImplementedError
+def validate_sample_sheet(sample_sheet_path, logger=None):
+    """
+    Validate that a sample sheet has the required format and data.
+    
+    Args:
+        sample_sheet_path (str or Path): Path to the sample sheet
+        logger (logging.Logger, optional): Logger to use for logging messages
+        
+    Returns:
+        bool: True if the sample sheet is valid, False otherwise
+    """
+    if logger is None:
+        logger = logging.getLogger("validate_samplesheet")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
+        logger.addHandler(handler)
+    
+    # Read samples from the sample sheet
+    samples, success = read_samples_from_samplesheet(sample_sheet_path, logger)
+    if not success:
+        return False
+    
+    # Check if we have at least one sample
+    if not samples:
+        logger.error("No samples found in sample sheet")
+        return False
+    
+    # Check for duplicate sample IDs
+    sample_ids = [sample["sample_id"] for sample in samples]
+    if len(sample_ids) != len(set(sample_ids)):
+        logger.error("Duplicate sample IDs found in sample sheet")
+        return False
+    
+    # Check for empty index fields if any sample has an index
+    has_index = any(sample["index"] for sample in samples)
+    if has_index:
+        for sample in samples:
+            if not sample["index"]:
+                logger.warning(f"Sample {sample['sample_id']} is missing index information")
+    
+    logger.info(f"Sample sheet validation passed with {len(samples)} samples")
+    return True
+
+def read_samples_from_samplesheet(sample_sheet_path, logger=None):
+    """
+    Read sample information from an Illumina sample sheet.
+    
+    Args:
+        sample_sheet_path (str or Path): Path to the sample sheet
+        logger (logging.Logger, optional): Logger to use for logging messages
+    
+    Returns:
+        list: List of dictionaries containing sample information (sample_id, index, index2)
+        bool: Success status
+    """
+    if logger is None:
+        logger = logging.getLogger("samplesheet_reader")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
+        logger.addHandler(handler)
+    
+    samples = []
+    data_section = False
+    header = None
+    
+    try:
+        with open(sample_sheet_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line == "[Data]":
+                    data_section = True
+                    continue
+                
+                if data_section and line and not line.startswith("["):
+                    if "Sample_ID" in line:  # Header line
+                        header = [col.strip() for col in line.split(',')]
+                        continue
+                    
+                    if header:
+                        parts = [part.strip() for part in line.split(',')]
+                        if len(parts) >= 1 and parts[0]:
+                            sample_info = {"sample_id": parts[0]}
+                            
+                            # Get index information if available
+                            if "index" in header and len(parts) > header.index("index"):
+                                sample_info["index"] = parts[header.index("index")]
+                            else:
+                                sample_info["index"] = ""
+                                
+                            if "index2" in header and len(parts) > header.index("index2"):
+                                sample_info["index2"] = parts[header.index("index2")]
+                            else:
+                                sample_info["index2"] = ""
+                                
+                            samples.append(sample_info)
+                    else:
+                        # If we're in the data section but haven't found a header yet,
+                        # and this line isn't a header, it might be malformed
+                        logger.warning(f"Found data line before header: {line}")
+    except Exception as e:
+        logger.error(f"Error parsing sample sheet: {e}")
+        return [], False
+    
+    if not samples:
+        logger.error("No samples found in sample sheet")
+        return [], False
+        
+    logger.info(f"Found {len(samples)} samples in sample sheet")
+    return samples, True
 
 def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
     """
@@ -52,33 +161,11 @@ def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
         logger.addHandler(handler)
     
     # Parse sample sheet to get expected samples
-    expected_samples = []
-    data_section = False
-    
-    try:
-        with open(sample_sheet_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line == "[Data]":
-                    data_section = True
-                    continue
-                
-                if data_section and line and not line.startswith("["):
-                    if "Sample_ID" in line:  # Header line
-                        continue
-                    
-                    parts = line.split(',')
-                    if len(parts) >= 1:
-                        sample_id = parts[0].strip()
-                        if sample_id:
-                            expected_samples.append(sample_id)
-    except Exception as e:
-        logger.error(f"Error parsing sample sheet: {e}")
+    samples, success = read_samples_from_samplesheet(sample_sheet_path, logger)
+    if not success:
         return False, []
     
-    if not expected_samples:
-        logger.error("No samples found in sample sheet")
-        return False, []
+    expected_samples = [sample["sample_id"] for sample in samples]
     
     # Look for fastq files in output directory
     # Typical pattern: SampleName_S1_L001_R1_001.fastq.gz
@@ -93,19 +180,19 @@ def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
     all_fastq_files = list(output_dir.glob("**/*.fastq.gz"))
     
     # Check if each expected sample has corresponding fastq files
-    for sample in expected_samples:
+    for sample_id in expected_samples:
         # Look for R1 and R2 files for each sample
-        r1_pattern = f"{sample}_S*_*_R1_*.fastq.gz"
-        r2_pattern = f"{sample}_S*_*_R2_*.fastq.gz"
+        r1_pattern = f"{sample_id}_S*_*_R1_*.fastq.gz"
+        r2_pattern = f"{sample_id}_S*_*_R2_*.fastq.gz"
         
         r1_files = list(output_dir.glob(f"**/{r1_pattern}"))
         r2_files = list(output_dir.glob(f"**/{r2_pattern}"))
         
         if not r1_files:
-            missing_files.append(f"{sample} (R1)")
+            missing_files.append(f"{sample_id} (R1)")
         
         if not r2_files:
-            missing_files.append(f"{sample} (R2)")
+            missing_files.append(f"{sample_id} (R2)")
     
     if missing_files:
         logger.warning(f"Missing fastq files for: {', '.join(missing_files)}")
