@@ -31,8 +31,88 @@ def get_run_id(rundir: Path, tag: str = "BaseSpaceRunId"):
 def validate_sample_sheet():
     raise NotImplementedError
 
-def check_for_missing_fastq():
-    raise NotImplementedError
+def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
+    """
+    Check if all expected fastq files based on the sample sheet are present in the output directory.
+    
+    Args:
+        output_dir (Path): Path to the output directory containing fastq files
+        sample_sheet_path (str or Path): Path to the sample sheet
+        logger (logging.Logger, optional): Logger to use for logging messages
+    
+    Returns:
+        bool: True if all expected files are present, False otherwise
+        list: List of missing files if any
+    """
+    if logger is None:
+        logger = logging.getLogger("check_fastq")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
+        logger.addHandler(handler)
+    
+    # Parse sample sheet to get expected samples
+    expected_samples = []
+    data_section = False
+    
+    try:
+        with open(sample_sheet_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line == "[Data]":
+                    data_section = True
+                    continue
+                
+                if data_section and line and not line.startswith("["):
+                    if "Sample_ID" in line:  # Header line
+                        continue
+                    
+                    parts = line.split(',')
+                    if len(parts) >= 1:
+                        sample_id = parts[0].strip()
+                        if sample_id:
+                            expected_samples.append(sample_id)
+    except Exception as e:
+        logger.error(f"Error parsing sample sheet: {e}")
+        return False, []
+    
+    if not expected_samples:
+        logger.error("No samples found in sample sheet")
+        return False, []
+    
+    # Look for fastq files in output directory
+    # Typical pattern: SampleName_S1_L001_R1_001.fastq.gz
+    missing_files = []
+    
+    # Check if the output directory exists
+    if not output_dir.exists():
+        logger.error(f"Output directory does not exist: {output_dir}")
+        return False, [f"Output directory not found: {output_dir}"]
+    
+    # Get all fastq files in the output directory and its subdirectories
+    all_fastq_files = list(output_dir.glob("**/*.fastq.gz"))
+    
+    # Check if each expected sample has corresponding fastq files
+    for sample in expected_samples:
+        # Look for R1 and R2 files for each sample
+        r1_pattern = f"{sample}_S*_*_R1_*.fastq.gz"
+        r2_pattern = f"{sample}_S*_*_R2_*.fastq.gz"
+        
+        r1_files = list(output_dir.glob(f"**/{r1_pattern}"))
+        r2_files = list(output_dir.glob(f"**/{r2_pattern}"))
+        
+        if not r1_files:
+            missing_files.append(f"{sample} (R1)")
+        
+        if not r2_files:
+            missing_files.append(f"{sample} (R2)")
+    
+    if missing_files:
+        logger.warning(f"Missing fastq files for: {', '.join(missing_files)}")
+        return False, missing_files
+    
+    logger.info(f"All expected fastq files found for {len(expected_samples)} samples")
+    return True, []
 
 def bcl_convert_cmd():
     raise NotImplementedError
@@ -169,4 +249,12 @@ if __name__ == "__main__":
 
     # Verify that the output fastq files match what is expected 
     # according to the sample sheet
+    output_dir = fastq_dir.joinpath(run_id)
+    success, missing_files = check_for_missing_fastq(output_dir, sample_sheet, logger)
+    
+    if not success:
+        logger.warning(f"Some expected fastq files are missing: {missing_files}")
+        logger.warning("Demultiplexing completed with warnings.")
+    else:
+        logger.info("Demultiplexing completed successfully. All expected files found.")
 
