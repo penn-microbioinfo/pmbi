@@ -1,10 +1,13 @@
 import argparse
+import pandas as pd
+from io import StringIO
 import time
 import json
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
-import logging
+from pmbi.logging import streamLogger
+
 
 
 def check_avail(binary, help="-h"):
@@ -28,26 +31,20 @@ def get_run_id(rundir: Path, tag: str = "BaseSpaceRunId"):
     return run_id
 
 
-def validate_sample_sheet(sample_sheet_path, logger=None):
+def validate_sample_sheet(sample_sheet_path):
     """
     Validate that a sample sheet has the required format and data.
     
     Args:
         sample_sheet_path (str or Path): Path to the sample sheet
-        logger (logging.Logger, optional): Logger to use for logging messages
         
     Returns:
         bool: True if the sample sheet is valid, False otherwise
     """
-    if logger is None:
-        logger = logging.getLogger("validate_samplesheet")
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
-        logger.addHandler(handler)
+    logger = streamLogger("validate_sample_sheet")
     
     # Read samples from the sample sheet
-    samples, success = read_samples_from_samplesheet(sample_sheet_path, logger)
+    samples, success = read_samples_from_samplesheet(sample_sheet_path)
     if not success:
         return False
     
@@ -72,73 +69,35 @@ def validate_sample_sheet(sample_sheet_path, logger=None):
     logger.info(f"Sample sheet validation passed with {len(samples)} samples")
     return True
 
-def read_samples_from_samplesheet(sample_sheet_path, logger=None):
+def read_samples_from_samplesheet(sample_sheet_path):
     """
     Read sample information from an Illumina sample sheet.
     
     Args:
         sample_sheet_path (str or Path): Path to the sample sheet
-        logger (logging.Logger, optional): Logger to use for logging messages
     
     Returns:
-        list: List of dictionaries containing sample information (sample_id, index, index2)
-        bool: Success status
+        pd.DataFrame|None: DataFrame from the comma-separated data in the [Data] section of the sample sheet. Returns None if the [Data] section is missing.
     """
-    if logger is None:
-        logger = logging.getLogger("samplesheet_reader")
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
-        logger.addHandler(handler)
+    logger = streamLogger("read_samples_from_samplesheet")
     
-    samples = []
-    data_section = False
-    header = None
+    data_section = None
     
-    try:
-        with open(sample_sheet_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line == "[Data]":
-                    data_section = True
-                    continue
-                
-                if data_section and line and not line.startswith("["):
-                    if "Sample_ID" in line:  # Header line
-                        header = [col.strip() for col in line.split(',')]
-                        continue
-                    
-                    if header:
-                        parts = [part.strip() for part in line.split(',')]
-                        if len(parts) >= 1 and parts[0]:
-                            sample_info = {"sample_id": parts[0]}
-                            
-                            # Get index information if available
-                            if "index" in header and len(parts) > header.index("index"):
-                                sample_info["index"] = parts[header.index("index")]
-                            else:
-                                sample_info["index"] = ""
-                                
-                            if "index2" in header and len(parts) > header.index("index2"):
-                                sample_info["index2"] = parts[header.index("index2")]
-                            else:
-                                sample_info["index2"] = ""
-                                
-                            samples.append(sample_info)
-                    else:
-                        # If we're in the data section but haven't found a header yet,
-                        # and this line isn't a header, it might be malformed
-                        logger.warning(f"Found data line before header: {line}")
-    except Exception as e:
-        logger.error(f"Error parsing sample sheet: {e}")
-        return [], False
-    
-    if not samples:
-        logger.error("No samples found in sample sheet")
-        return [], False
-        
-    logger.info(f"Found {len(samples)} samples in sample sheet")
-    return samples, True
+    with open(sample_sheet_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line == "[Data]":
+                data_section = StringIO()
+                continue
+            
+            # if data_section is not None and length(
+            if data_section and line and not line.startswith("["):
+                data_section.write(f"{line}\n")
+
+    if data_section:
+        return pd.read_csv(data_section)
+    else:
+        return None
 
 def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
     """
@@ -314,13 +273,7 @@ if __name__ == "__main__":
         stderr=subprocess.STDOUT,
         text=True
     ) as proc:
-        
-        logger = logging.getLogger("bcl2fastq")
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        # handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
-        logger.addHandler(handler)
+        logger = streamLogger("bcl2fastq")
         while True:
             line = proc.stdout.readline()
             if not line and proc.poll() is not None:
