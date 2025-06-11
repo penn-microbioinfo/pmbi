@@ -1,5 +1,4 @@
 import argparse
-import sys
 import time
 import json
 import subprocess
@@ -32,6 +31,8 @@ def get_run_id(rundir: Path, tag: str = "BaseSpaceRunId"):
 def validate_sample_sheet():
     raise NotImplementedError
 
+def check_for_missing_fastq():
+    raise NotImplementedError
 
 def bcl_convert_cmd():
     raise NotImplementedError
@@ -62,7 +63,7 @@ def bcl2fastq_cmd(
         writing_threads,
     ]
     if create_fastq_for_index_reads:
-        cmd.append("--create_fastq_for_index_reads")
+        cmd.append("--create-fastq-for-index-reads")
 
     return cmd
 
@@ -99,10 +100,15 @@ if __name__ == "__main__":
         choices=["bcl2fastq", "bcl-convert"],
         help="Backend to use for demuxing: bcl2fastq or bcl-convert",
     )
+    parser.add_argument(
+        "--create_fastq_for_index_reads",
+        action="store_true",
+        required=False,
+        help="Pass this flag to create index read fastq files",
+    )
 
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
     fastq_dir = Path(args.fastq_dir)
 
     # Default Illumina SampleSheet.csv path
@@ -125,35 +131,42 @@ if __name__ == "__main__":
             loading_threads=args.threads,
             processing_threads=args.threads,
             writing_threads=args.threads,
+            create_fastq_for_index_reads=args.create_fastq_for_index_reads,
         )
-        with subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        ) as proc:
-            
-            logger = logging.getLogger("bcl2fastq")
-            logger.setLevel(logging.INFO)
-            # logger.handlers.clear()
-            handler = logging.StreamHandler(stream=sys.stdout)
-            handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-            handler.setFormatter(logging.Formatter("%(message)s"))
-            logger.addHandler(handler)
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    break
-                    
-                if line:
-                    logger.info(line.strip())
-
-            print(proc.returncode)
-                
-
     elif args.backend == "bcl-convert":
         raise NotImplementedError
 
     else:
         # Should not happen because of `choices` in argparser
         raise ValueError
+
+    # Run the demux command
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE, # Affirms that proc.stdout will not be None
+        stderr=subprocess.STDOUT,
+        text=True
+    ) as proc:
+        
+        logger = logging.getLogger("bcl2fastq")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        # handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
+        logger.addHandler(handler)
+        while True:
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+                
+            if line:
+                logger.info(line.strip())
+
+        if proc.returncode != 0:
+            mes = f"Demux process failed with returncode: {proc.returncode}"
+            logger.critical(mes)
+            raise subprocess.SubprocessError(mes)
+
+    # Verify that the output fastq files match what is expected 
+    # according to the sample sheet
+
