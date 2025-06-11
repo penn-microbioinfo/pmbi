@@ -1,13 +1,16 @@
 import argparse
-import pandas as pd
-from io import StringIO
-import time
 import json
 import subprocess
+import time
+import typing
 import xml.etree.ElementTree as ET
+from io import StringIO, TextIOWrapper
 from pathlib import Path
-from pmbi.logging import streamLogger
 
+import pandas as pd
+
+import pmbi.error as perr
+from pmbi.logging import list_loggers, streamLogger
 
 
 def check_avail(binary, help="-h"):
@@ -31,134 +34,76 @@ def get_run_id(rundir: Path, tag: str = "BaseSpaceRunId"):
     return run_id
 
 
-def validate_sample_sheet(sample_sheet_path):
-    """
-    Validate that a sample sheet has the required format and data.
-    
-    Args:
-        sample_sheet_path (str or Path): Path to the sample sheet
-        
-    Returns:
-        bool: True if the sample sheet is valid, False otherwise
-    """
-    logger = streamLogger("validate_sample_sheet")
-    
-    # Read samples from the sample sheet
-    samples, success = read_samples_from_samplesheet(sample_sheet_path)
-    if not success:
-        return False
-    
-    # Check if we have at least one sample
-    if not samples:
-        logger.error("No samples found in sample sheet")
-        return False
-    
-    # Check for duplicate sample IDs
-    sample_ids = [sample["sample_id"] for sample in samples]
-    if len(sample_ids) != len(set(sample_ids)):
-        logger.error("Duplicate sample IDs found in sample sheet")
-        return False
-    
-    # Check for empty index fields if any sample has an index
-    has_index = any(sample["index"] for sample in samples)
-    if has_index:
-        for sample in samples:
-            if not sample["index"]:
-                logger.warning(f"Sample {sample['sample_id']} is missing index information")
-    
-    logger.info(f"Sample sheet validation passed with {len(samples)} samples")
-    return True
-
-def read_samples_from_samplesheet(sample_sheet_path):
+# %%
+def read_samplesheet_data_section(sample_sheet: typing.TextIO) -> pd.DataFrame:
     """
     Read sample information from an Illumina sample sheet.
-    
+
     Args:
-        sample_sheet_path (str or Path): Path to the sample sheet
-    
+        sample_sheet_path (TextIO): Path to the sample sheet
+
     Returns:
-        pd.DataFrame|None: DataFrame from the comma-separated data in the [Data] section of the sample sheet. Returns None if the [Data] section is missing.
+        pd.DataFrame: DataFrame from the comma-separated data in the [Data] section of the sample sheet. Raise ValueError if the [Data] section is missing.
     """
-    logger = streamLogger("read_samples_from_samplesheet")
-    
     data_section = None
-    
-    with open(sample_sheet_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line == "[Data]":
-                data_section = StringIO()
-                continue
-            
-            # if data_section is not None and length(
-            if data_section and line and not line.startswith("["):
-                data_section.write(f"{line}\n")
+
+    for line in sample_sheet:
+        line = line.strip()
+        if line == "[Data]":
+            data_section = StringIO()
+            continue
+
+        if data_section and line and not line.startswith("["):
+            data_section.write(f"{line}\n")
 
     if data_section:
+        data_section.seek(0)
         return pd.read_csv(data_section)
     else:
-        return None
+        raise ValueError("Data section missing")
 
-def check_for_missing_fastq(output_dir, sample_sheet_path, logger=None):
+
+def check_for_missing_fastq(output_dir: Path, sample_sheet: typing.TextIO):
     """
     Check if all expected fastq files based on the sample sheet are present in the output directory.
-    
+
     Args:
         output_dir (Path): Path to the output directory containing fastq files
-        sample_sheet_path (str or Path): Path to the sample sheet
-        logger (logging.Logger, optional): Logger to use for logging messages
-    
+        sample_sheet (TextIO): File-like object of smaple sheet
+
     Returns:
-        bool: True if all expected files are present, False otherwise
-        list: List of missing files if any
+        None
     """
-    if logger is None:
-        logger = logging.getLogger("check_fastq")
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s --> %(message)s"))
-        logger.addHandler(handler)
-    
+
+    logger = streamLogger("check_for_missing_fastq")
+
     # Parse sample sheet to get expected samples
-    samples, success = read_samples_from_samplesheet(sample_sheet_path, logger)
-    if not success:
-        return False, []
-    
-    expected_samples = [sample["sample_id"] for sample in samples]
-    
-    # Look for fastq files in output directory
-    # Typical pattern: SampleName_S1_L001_R1_001.fastq.gz
-    missing_files = []
-    
+    expected_samples = read_samplesheet_data_section(sample_sheet)["Sample_ID"]
+
     # Check if the output directory exists
     if not output_dir.exists():
-        logger.error(f"Output directory does not exist: {output_dir}")
-        return False, [f"Output directory not found: {output_dir}"]
-    
-    # Get all fastq files in the output directory and its subdirectories
-    all_fastq_files = list(output_dir.glob("**/*.fastq.gz"))
-    
-    # Check if each expected sample has corresponding fastq files
+        mes = f"Output directory does not exist: {output_dir}"
+        logger.error(mes)
+        raise OSError(mes)
+
+    # Look for sample-matching fastq files in output directory
+    missing_samples = []
     for sample_id in expected_samples:
-        # Look for R1 and R2 files for each sample
-        r1_pattern = f"{sample_id}_S*_*_R1_*.fastq.gz"
-        r2_pattern = f"{sample_id}_S*_*_R2_*.fastq.gz"
-        
-        r1_files = list(output_dir.glob(f"**/{r1_pattern}"))
-        r2_files = list(output_dir.glob(f"**/{r2_pattern}"))
-        
-        if not r1_files:
-            missing_files.append(f"{sample_id} (R1)")
-        
-        if not r2_files:
-            missing_files.append(f"{sample_id} (R2)")
-    
-    if missing_files:
-        logger.warning(f"Missing fastq files for: {', '.join(missing_files)}")
-        return False, missing_files
-    
-    logger.info(f"All expected fastq files found for {len(expected_samples)} samples")
-    return True, []
+
+        r1_files = list(output_dir.glob(f"{sample_id}_S*_*_R1_*.fastq.gz"))
+        r2_files = list(output_dir.glob(f"{sample_id}_S*_*_R2_*.fastq.gz"))
+
+        if len(r1_files) == 0 or len(r2_files) == 0:
+            missing_samples.append(sample_id)
+
+    if len(missing_samples) > 0:
+        logger.warning(f"Missing fastq files for: {', '.join(missing_samples)}")
+
+    else:
+        logger.info(
+            f"All expected fastq files found for {len(expected_samples)} samples"
+        )
+
 
 def bcl_convert_cmd():
     raise NotImplementedError
@@ -269,16 +214,16 @@ if __name__ == "__main__":
     # Run the demux command
     with subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE, # Affirms that proc.stdout will not be None
+        stdout=subprocess.PIPE,  # Affirms that proc.stdout will not be None
         stderr=subprocess.STDOUT,
-        text=True
+        text=True,
     ) as proc:
         logger = streamLogger("bcl2fastq")
         while True:
             line = proc.stdout.readline()
             if not line and proc.poll() is not None:
                 break
-                
+
             if line:
                 logger.info(line.strip())
 
@@ -287,14 +232,7 @@ if __name__ == "__main__":
             logger.critical(mes)
             raise subprocess.SubprocessError(mes)
 
-    # Verify that the output fastq files match what is expected 
-    # according to the sample sheet
-    output_dir = fastq_dir.joinpath(run_id)
-    success, missing_files = check_for_missing_fastq(output_dir, sample_sheet, logger)
-    
-    if not success:
-        logger.warning(f"Some expected fastq files are missing: {missing_files}")
-        logger.warning("Demultiplexing completed with warnings.")
-    else:
-        logger.info("Demultiplexing completed successfully. All expected files found.")
-
+    # This function only writes to log
+    check_for_missing_fastq(
+        output_dir=fastq_dir.joinpath(run_id), sample_sheet=open(sample_sheet, "r")
+    )

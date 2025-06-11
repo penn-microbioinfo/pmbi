@@ -1,13 +1,13 @@
 import pytest
 import pandas as pd
 from pathlib import Path
+from io import StringIO, TextIOWrapper
 import tempfile
 import os
-from pmbi.illumina.demux import read_samples_from_samplesheet
+from pmbi.illumina.demux import read_samplesheet_data_section
 
 @pytest.fixture
-def sample_sheet_file():
-    """Create a temporary sample sheet file for testing."""
+def sample_sheet():
     content = """[Header]
 IEMFileVersion,5
 Date,2023-06-11
@@ -26,18 +26,10 @@ Sample1,Sample1_Name,ATCACG,GTCGTC,Project1
 Sample2,Sample2_Name,CGATGT,ACGTAC,Project1
 Sample3,Sample3_Name,TTAGGC,TGCATG,Project1
 """
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-        f.write(content)
-        temp_file = f.name
-    
-    yield temp_file
-    
-    # Clean up the temporary file
-    os.unlink(temp_file)
+    return StringIO(content)
 
 @pytest.fixture
-def empty_data_section_sample_sheet_file():
-    """Create a temporary sample sheet file with an empty [Data] section."""
+def empty_data_section_sample_sheet():
     content = """[Header]
 IEMFileVersion,5
 Date,2023-06-11
@@ -53,18 +45,10 @@ AdapterRead2,AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
 [Data]
 Sample_ID,Sample_Name,index,index2,Sample_Project
 """
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-        f.write(content)
-        temp_file = f.name
-    
-    yield temp_file
-    
-    # Clean up the temporary file
-    os.unlink(temp_file)
+    return StringIO(content)
 
 @pytest.fixture
-def no_data_section_sample_sheet_file():
-    """Create a temporary sample sheet file without a [Data] section."""
+def no_data_section_sample_sheet():
     content = """[Header]
 IEMFileVersion,5
 Date,2023-06-11
@@ -77,18 +61,11 @@ Date,2023-06-11
 Adapter,AGATCGGAAGAGCACACGTCTGAACTCCAGTCA
 AdapterRead2,AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
 """
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-        f.write(content)
-        temp_file = f.name
-    
-    yield temp_file
-    
-    # Clean up the temporary file
-    os.unlink(temp_file)
+    return StringIO(content)
 
-def test_read_samples_from_samplesheet_valid(sample_sheet_file):
+def test_read_samplesheet_data_section_valid(sample_sheet):
     """Test reading a valid sample sheet."""
-    result = read_samples_from_samplesheet(sample_sheet_file)
+    result = read_samplesheet_data_section(sample_sheet)
     
     assert isinstance(result, pd.DataFrame)
     assert len(result) == 3
@@ -101,19 +78,15 @@ def test_read_samples_from_samplesheet_valid(sample_sheet_file):
     assert result['index'].tolist() == ['ATCACG', 'CGATGT', 'TTAGGC']
     assert result['index2'].tolist() == ['GTCGTC', 'ACGTAC', 'TGCATG']
 
-def test_read_samples_from_samplesheet_empty_data(empty_data_section_sample_sheet_file):
+def test_read_samplesheet_data_section_empty_data(empty_data_section_sample_sheet):
     """Test reading a sample sheet with an empty [Data] section."""
-    result = read_samples_from_samplesheet(empty_data_section_sample_sheet_file)
-    
+    result = read_samplesheet_data_section(empty_data_section_sample_sheet)
+
     assert isinstance(result, pd.DataFrame)
     assert len(result) == 0  # Empty DataFrame but with columns
 
-def test_read_samples_from_samplesheet_no_data_section(no_data_section_sample_sheet_file):
+def test_read_samplesheet_data_section_no_data_section(no_data_section_sample_sheet):
     """Test reading a sample sheet without a [Data] section."""
     with pytest.raises(ValueError, match="Data section missing"):
-        read_samples_from_samplesheet(no_data_section_sample_sheet_file)
+        read_samplesheet_data_section(no_data_section_sample_sheet)
 
-def test_read_samples_from_samplesheet_nonexistent_file():
-    """Test reading a nonexistent sample sheet file."""
-    with pytest.raises(FileNotFoundError):
-        read_samples_from_samplesheet("nonexistent_file.csv")
