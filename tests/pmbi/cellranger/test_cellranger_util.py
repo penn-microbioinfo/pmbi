@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 
-from pmbi.cellranger.1_make_bcl2fastq_samplesheet import read_10x_index_sheets
+from pmbi.cellranger.util import read_10x_index_sheets
 
 def test_read_10x_index_sheets():
     # Create temporary test data

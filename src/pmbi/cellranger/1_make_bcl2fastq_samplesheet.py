@@ -5,6 +5,7 @@ import pandas as pd
 
 from pmbi.config import import_config
 from pmbi.file_handlers import SheetHandler
+from pmbi.cellranger.util import read_10x_index_sheets
 
 if __name__ == "__main__":
 # %% CHUNK: Argument parser {{{
@@ -52,48 +53,12 @@ if __name__ == "__main__":
         help="Comma separated list of values allowed in filter_by column",
     )
 
-    # row_filter_group = parser.add_mutually_exclusive_group()
-    # row_filter_group.add_argument(
-    #     "-d",
-    #     "--donors",
-    #     action="store",
-    #     required=False,
-    #     help="Donors to include in output. Default is to include all donors.",
-    # )
-    # row_filter_group.add_argument(
-    #     "-s",
-    #     "--samples",
-    #     action="store",
-    #     required=False,
-    #     help="Samples to include in output. Default is to include all samples.",
-    # )
     args = parser.parse_args()
 # }}}
 
-# %% CHUNK: Read in 10X index sheets {{{
-    column_renamer = {
-        "index_name": "index_name",
-        "index(i7)": "i7",
-        "index2_workflow_a(i5)": "i5_workflow_a",
-        "index2_workflow_b(i5)": "i5_workflow_b",
-    }
-    expected_colnames = pd.Index(column_renamer.keys())
-
-    tenx_index_sheets = []
-    for path in args.tenx_index_sheets:
-        sheet = pd.read_csv(path, sep=",", comment="#")
-        if not expected_colnames.isin(sheet.columns).all():
-            raise ValueError(f"Input sheet missing expected column names: {path}")
-        else:
-            sheet = sheet.rename(columns=column_renamer)[pd.Index(column_renamer.values())]
-            tenx_index_sheets.append(sheet)
-
-    tenx_idx = pd.concat(tenx_index_sheets, axis=0)[
-        ["index_name", "i7", f"i5_workflow_{args.workflow}"]
-    ]
-     # }}}
 
 # %% CHUNK: Read in user metadata, filter {{{
+    tenx_idx = read_10x_index_sheets(*args.tenx_index_sheets, workflow=args.workflow)
     config = import_config(args.config)
     metadata = SheetHandler(Path(args.metadata)).sheet
 # %% Filter rows of metadata based on args

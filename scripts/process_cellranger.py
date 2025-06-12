@@ -1,4 +1,4 @@
-# %%
+# t%%
 import subprocess
 import importlib
 import re
@@ -14,6 +14,8 @@ import pmbi.plotting as pmbi
 from pmbi.config import import_config
 from pmbi.file_handlers import CellrangerHandler, CellrangerMultiConfigCsv, LocalBackend
 
+import pmbi.cellranger.cellranger_command as crc
+
 # %%
 importlib.reload(pfh)
 importlib.reload(cc)
@@ -22,13 +24,17 @@ config = import_config(
 )
 config.references
 
-h = pfh.CellrangerHandler(
+h = crc.CellrangerCollection(
     path=Path("/home/amsesk/super1/t1d-coculture/all_fastq_symlinks/"),
     config=config,
     pattern="^HPAP[-][0-9]+[_].+[_]R[0-9][_].+[.]fastq[.]gz$",
     backend=LocalBackend(),
 )
 
+hu = h.get_units()
+hu[0].table
+
+h.table
 # %%
 wd = "/home/amsesk/super1/t1d-coculture/cellranger/runs/"
 os.chdir(wd)

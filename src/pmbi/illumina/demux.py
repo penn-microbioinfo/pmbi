@@ -63,7 +63,7 @@ def read_samplesheet_data_section(sample_sheet: typing.TextIO) -> pd.DataFrame:
         raise ValueError("Data section missing")
 
 
-def check_for_missing_fastq(output_dir: Path, sample_sheet: typing.TextIO):
+def fastq_missing_for(output_dir: Path, sample_sheet: typing.TextIO):
     """
     Check if all expected fastq files based on the sample sheet are present in the output directory.
 
@@ -103,6 +103,8 @@ def check_for_missing_fastq(output_dir: Path, sample_sheet: typing.TextIO):
         logger.info(
             f"All expected fastq files found for {len(expected_samples)} samples"
         )
+
+    return missing_samples
 
 
 def bcl_convert_cmd():

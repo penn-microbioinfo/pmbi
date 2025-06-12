@@ -1,6 +1,11 @@
 def try_except(func):
     def wrapper(*args, **kwargs):
-        print("meh")
-        func(*args, **kwargs)
-        print("meh2")
+        try:
+            res = func(*args, **kwargs)
+
+            return res
+
+        except Exception as e:
+            raise e
     return wrapper
+
