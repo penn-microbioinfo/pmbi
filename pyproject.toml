@@ -66,3 +66,9 @@ publish = [
     "jupyter>=1.0.0"
     ]
 
+test = [
+    "pytest",
+    "pytest-cov"
+    ]
+
+
