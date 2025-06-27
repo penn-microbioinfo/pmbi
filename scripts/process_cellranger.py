@@ -1,28 +1,29 @@
-# t%%
-import subprocess
+# %%
+import numpy as np
 import importlib
-import re
-import os
+import subprocess
 from pathlib import Path
-from joblib import Parallel, delayed
 
 import pandas as pd
+from joblib import Parallel, delayed
 
-import pmbi.cellranger.cellranger_command as cc
+import pmbi.cellranger.cellranger_command as crc
+import pmbi.config as pmbiconf
 import pmbi.file_handlers as pfh
 import pmbi.plotting as pmbi
 from pmbi.config import import_config
-from pmbi.file_handlers import CellrangerHandler, CellrangerMultiConfigCsv, LocalBackend
+from pmbi.file_handlers import LocalBackend
 
-import pmbi.cellranger.cellranger_command as crc
+# from pmbi.file_handlers import CellrangerHandler, CellrangerMultiConfigCsv, LocalBackend
+
 
 # %%
-importlib.reload(pfh)
-importlib.reload(cc)
+# importlib.reload(pfh)
+importlib.reload(crc)
+# importlib.reload(pmbiconf)
 config = import_config(
     "/home/amsesk/super1/t1d-coculture/config/cellranger_config.toml"
 )
-config.references
 
 h = crc.CellrangerCollection(
     path=Path("/home/amsesk/super1/t1d-coculture/all_fastq_symlinks/"),
@@ -31,25 +32,83 @@ h = crc.CellrangerCollection(
     backend=LocalBackend(),
 )
 
-hu = h.get_units()
-hu[0].table
+# %% Greg says that we are not interested in the...
+#       - VDJ-B samples
+#       - IO samples
+# ... so delete
 
-h.table
+h.table = h.table[h.table["modality"] != "VDJ-B"]
+h.table = h.table[~h.table["sample"].str.contains("[_]IO[_]")]
+h.table["sample"]
+
+
+# %% TODO: Add verify function to figure out which samples are missing according to some other sheet
+pd.set_option("display.max_rows", 150)
+h.table[["sample", "modality"]]["sample"].drop_duplicates().shape
+
+
+coculture_meta = pd.read_excel("/home/amsesk/super1/t1d-coculture/CoCulture_metadata.xlsx")
+coculture_meta["Sample_Name"]
+
+comp = coculture_meta[["sample", "Library_Type"]]
+comp = comp[~comp["sample"].str.fullmatch("HPAP-141_CC_[0-9]+")]
+comp = comp[comp["Library_Type"] != "VDJ-B"]
+comp = comp[~comp["sample"].str.contains("_IO_")]
+comp = comp[~comp["sample"].str.contains("_IsletSupernatant")]
+
+
+(h.table[["sample"]].value_counts()==24).all()
+(h.table[["sample", "modality"]].drop_duplicates()["sample"].value_counts()==3).all()
+
+
+h.table.shape
+s1 = h.table[["sample", "modality"]]["sample"].drop_duplicates()
+s1.shape
+s2 = comp["sample"].drop_duplicates()
+s2.shape
+
+[x for x in s2 if x not in s1.tolist()]
+[x for x in s1 if x not in s2.tolist()]
+
+
+[x for x in h.get_units() if x.sample == "HPAP-141_CC_1a"][0].table
 # %%
-wd = "/home/amsesk/super1/t1d-coculture/cellranger/runs/"
-os.chdir(wd)
-h_spl = h.split(by="sample_rep")
-cmds = [pfh.CellrangerMulti(handler=h, wd=Path("/home/amsesk/super1/t1d-coculture/cellranger/runs"), localcores=8, localmem=32).cmd() for h in h_spl]
-
-
-# %%
-def _run(cmd):
-    p = subprocess.run(cmd, capture_output=True)
-    return p
-
-out = Parallel(n_jobs=24)(
-    delayed(_run)(cmd) for cmd in cmds
+hur = [x for x in h.get_units() if x.sample == "HPAP-141_CC_1a"][0].create_runner(
+    wd=Path("/home/amsesk/super2/cellranger/"),
+    localcores=8,
+    localmem=32
 )
+hur._check_output_exists()
+dir(hur)
+
+# %%
+
+# %%
+
+def _run(unit, wd, **kwargs):
+    unit.create_runner(wd, **kwargs).run()
+# %%
+_out = Parallel(n_jobs=12)(delayed(_run)(unit,
+                                        wd=Path("/home/amsesk/super2/cellranger/"),
+                                        localcores=8,
+                                        localmem=32
+                                        ) for unit in h.get_units())
+
+###########################
+# %%
+###########################
+
+
+# %%
+hur = hu[8].create_runner(
+    wd=Path("/home/amsesk/super1/t1d-coculture/cellranger/runs"),
+    localcores=8,
+    localmem=32,
+)
+
+
+# %% Run cellranger
+
 
 # %%
 
@@ -64,7 +123,9 @@ csv.write(path=Path("/home/amsesk/super1/t1d-coculture/test_cr.csv"))
 # %%
 
 h.table["modality"].unique()
-sub._modality_metadata().set_index("cellranger_multi_feature_type").loc[sub.table["modality"].unique()]
+sub._modality_metadata().set_index("cellranger_multi_feature_type").loc[
+    sub.table["modality"].unique()
+]
 
 # %%
 sub._modality_metadata()
@@ -107,4 +168,3 @@ pmbi.heatmap(
 )
 panel.fig.savefig("/home/amsesk/figures/coculture/modal_cover.png")
 # %%
-

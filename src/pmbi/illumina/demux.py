@@ -230,11 +230,12 @@ if __name__ == "__main__":
                 logger.info(line.strip())
 
         if proc.returncode != 0:
-            mes = f"Demux process failed with returncode: {proc.returncode}"
+            mes = f"Process failed with returncode: {proc.returncode}"
             logger.critical(mes)
             raise subprocess.SubprocessError(mes)
 
+    # %% TODO: Swap for `fastq_missing_for`
     # This function only writes to log
-    check_for_missing_fastq(
-        output_dir=fastq_dir.joinpath(run_id), sample_sheet=open(sample_sheet, "r")
-    )
+   # check_for_missing_fastq(
+    #     output_dir=fastq_dir.joinpath(run_id), sample_sheet=open(sample_sheet, "r")
+    # )

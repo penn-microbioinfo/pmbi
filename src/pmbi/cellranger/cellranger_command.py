@@ -4,6 +4,7 @@ import copy
 import io
 import os
 import re
+import shutil
 from pathlib import Path
 import subprocess
 from typing import Generator, Iterator
@@ -13,7 +14,11 @@ from munch import Munch
 import toolz
 
 from pmbi.file_handlers import Backend, LocalBackend
-from pmbi.util import get_substring
+from pmbi.util.misc import get_substring
+from pmbi.logging import streamLogger
+import pmbi.config as pmbiconf
+import pmbi.subproc as pmbiproc
+
 
 class CellrangerCollection:
     """Handles the initial collection of all files and metadata for cellranger multi operations"""
@@ -44,13 +49,9 @@ class CellrangerCollection:
 
     def _feature_type_converter(self):
         """Convert modalities to cellranger feature types"""
-        return self._modality_metadata().set_index("name")[
+        return pmbiconf.table_to_dataframe(self.config.modalities).set_index("name")[
             ["cellranger_multi_feature_type"]
         ]
-
-    def _modality_metadata(self):
-        """Get modality metadata from config"""
-        return pd.DataFrame(map(lambda x: x.__dict__, self.config.modalities))
 
     def _make_table(self) -> pd.DataFrame:
         """Create a table of file metadata"""
@@ -65,10 +66,6 @@ class CellrangerCollection:
                     "modality": get_substring(
                         string=fb, pattern=self.config.filename_patterns.modality
                     ),
-                    "technical_replicate": get_substring(
-                        string=fb,
-                        pattern=self.config.filename_patterns.technical_replicate,
-                    ),
                     "read_number": get_substring(
                         string=fb, pattern=self.config.filename_patterns.read_number
                     ),
@@ -78,8 +75,7 @@ class CellrangerCollection:
                 }
             )
         df = pd.DataFrame(ldict)
-        df["sample_rep"] = df["sample"] + "_" + df["technical_replicate"]
-        df = df.sort_values(["sample_rep", "modality", "read_number"])
+        df = df.sort_values(["sample", "modality", "read_number"])
         df["modality"] = pd.Categorical(
             values=df["modality"], categories=df["modality"].unique()
         )
@@ -89,10 +85,10 @@ class CellrangerCollection:
         return df
 
     def get_units(self) -> list[CellrangerUnit]:
-        """Split collection into individual sample_rep units"""
+        """Split collection into individual sample units"""
         units = []
-        for sample_rep in self.table["sample_rep"].unique():
-            unit_files = self.table[self.table["sample_rep"] == sample_rep].copy()
+        for sample in self.table["sample"].unique():
+            unit_files = self.table[self.table["sample"] == sample].copy()
             units.append(
                 CellrangerUnit(
                     table=unit_files,
@@ -103,22 +99,21 @@ class CellrangerCollection:
         return units
 
 class CellrangerUnit:
-    """Represents a single cellranger multi operation"""
     
     def __init__(self, table: pd.DataFrame, config: Munch, files: list[Path]):
         self.table = table
         self.config = config
         self.files = files
-        self._validate_single_sample_rep()
+        self.sample = self._validate_single_sample()
         
-    def _validate_single_sample_rep(self):
-        """Ensure unit contains exactly one sample_rep"""
-        unique_sample_reps = self.table["sample_rep"].unique()
-        if len(unique_sample_reps) != 1:
+    def _validate_single_sample(self):
+        """Ensure unit contains exactly one sample"""
+        unique_samples = self.table["sample"].unique()
+        if len(unique_samples) != 1:
             raise ValueError(
-                f"CellrangerUnit must contain exactly one sample_rep. Found: {unique_sample_reps}"
+                f"CellrangerUnit must contain exactly one sample. Found: {unique_samples}"
             )
-        self.sample_rep = unique_sample_reps[0]
+        return unique_samples[0]
     
     @property
     def config_csv(self) -> CellrangerConfigCsv:
@@ -138,7 +133,7 @@ class CellrangerConfigCsv:
         
     def _section_header_converter(self):
         """Get section headers from modality metadata"""
-        return self.unit._modality_metadata().set_index("name")[
+        return pmbiconf.table_to_dataframe(self.unit.config.modalities).set_index("name")[
             ["cellranger_multi_csv_section_header"]
         ]
 
@@ -149,7 +144,6 @@ class CellrangerConfigCsv:
                 "fastq_id": self.unit.table["sample"].str.cat(
                     others=[
                         self.unit.table["modality"],
-                        self.unit.table["technical_replicate"],
                     ],
                     sep="_",
                 ),
@@ -166,7 +160,7 @@ class CellrangerConfigCsv:
     def _feature_type_sections(self) -> str:
         """Generate feature type sections of config CSV"""
         sections = (
-            self.unit._modality_metadata()
+            pmbiconf.table_to_dataframe(self.unit.config.modalities)
             .set_index("cellranger_multi_feature_type")
             .loc[
                 self.unit.table["cellranger_multi_feature_type"]
@@ -177,10 +171,10 @@ class CellrangerConfigCsv:
             .set_index("cellranger_multi_csv_section_header", drop=True)
             .drop(columns=["name"])
             .drop_duplicates()
-            .iterrows()
         )
         buffer = io.StringIO()
-        for sec in sections:
+        for sec in sections.iterrows():
+            print(sec)
             buffer.write(f"[{sec[0]}]\n")
             buffer.write(
                 "\n".join(
@@ -190,39 +184,59 @@ class CellrangerConfigCsv:
             buffer.write("\n\n")
         return buffer.getvalue()
 
+    def to_stringio(self):
+        csv = io.StringIO()
+        csv.write("[libraries]\n")
+        self.libraries.drop_duplicates().to_csv(csv, index=False)
+        csv.write("\n")
+        csv.write(self._feature_type_sections())
+        csv.seek(0)
+        return csv
+
     def write(self, path: Path):
-        """Write config CSV to file"""
         with open(path, "w") as out:
-            out.write("[libraries]\n")
-            self.libraries.drop_duplicates().to_csv(out, index=False)
-            out.write("\n")
-            out.write(self._feature_type_sections())
+            out.write(self.to_stringio().read())
+
 
 class CellrangerRunner:
-    """Handles command generation and execution for a single cellranger multi unit"""
     
     def __init__(self, unit: CellrangerUnit, wd: Path = Path("."), **kwargs):
         self.unit = unit
         self.wd = wd
-        self.id = self.unit.sample_rep
-        self.csv_path = self.wd.joinpath(f"{self.id}__cr_multi_config.csv")
+        self.id = self.unit.sample
+        self.csv_base = Path(f"{self.id}__config.csv")
+        self.outs_dest = self.wd / f"{self.id}__outs"
+        self.logger = streamLogger("CellrangerRunner")
         self.kwargs = kwargs
         
-    @property
     def more_args(self) -> list[str]:
         """Convert kwargs to command line arguments"""
         return list(toolz.concat([[f"--{k}", v] for k,v in self.kwargs.items()]))
         
     def cmd(self) -> list[str]:
-        """Generate cellranger multi command"""
         return list(map(str, (
-            ["cellranger", "multi", "--id", self.id, "--csv", self.csv_path] 
-            + self.more_args
+            ["cellranger", "multi", "--id", self.id, "--csv", self.csv_base] 
+                + self.more_args()
         )))
+
+    def _check_output_exists(self):
+        if self.outs_dest.exists():
+            mes = f"Output directory exists. Skipping myself: {self.id}"
+            self.logger.critical(mes)
+            raise OSError(mes)
+
+    def cleanup(self):
+        outs_src = self.wd / self.id / "outs"
+        outs_dest = self.outs_dest
+        shutil.copytree(outs_src, outs_dest)
+        shutil.rmtree(self.wd / self.id)
+        self.csv_base.unlink()
         
-    def run(self) -> subprocess.CompletedProcess:
-        """Execute cellranger multi command"""
-        # First write the config CSV
-        self.unit.config_csv.write(self.csv_path)
-        # Then run the command
-        return subprocess.run(self.cmd(), capture_output=True)
+    def run(self):
+        logger = streamLogger("cellranger_multi")
+        logger.info(f"Changing directory: {self.wd}")
+        os.chdir(self.wd)
+        logger.info(f"Writing config csv to: {self.wd / self.csv_base}")
+        self.unit.config_csv.write(self.csv_base)
+        pmbiproc.run_and_log(cmd=self.cmd(), logger=logger)
+        self.cleanup()

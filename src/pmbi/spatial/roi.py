@@ -1,3 +1,4 @@
+# %%
 from PIL import Image, ImageDraw, ImageEnhance, ImagePalette, ImageOps
 from pathlib import Path
 import pandas as pd
@@ -5,19 +6,74 @@ import numpy as np
 import tifffile
 import imagecodecs
 import matplotlib.pyplot as plt
+import ome_types
 
 # Allow big images, because the scans are big
 Image.MAX_IMAGE_PIXELS = 5000000000
 
 META=Path("/home/ubuntu/projmnt/tcsl/metadata/BreastVax_human/")
-IMG=Path("/home/ubuntu/projmnt/tcsl/images/BreastVax_human")
+IMG=Path("/home/amsesk/super1/tcsl/breastvax_human/scans/")
+
+#######################
+# %% Functions
+#######################
+def correct_roi_coords(x, y, area, resolution_level, x_offset=0, y_offset=0):
+    aligned = np.array([x+x_offset, y+y_offset])
+    xy_scaled = aligned*(1/(2**resolution_level))
+    # %% BUG: Aread scaling still isn't right
+    area_scaled = area*(1/(2**resolution_level))
+    return tuple([round(x) for x in [xy_scaled[0],xy_scaled[1], area_scaled]])
+
+# %%
+def i16_i8_arr(i16: np.array):
+    ret = (i16-0+1)/(255-0+1)
+    return ret.round()
+
+# %%
+def i16_i8(i16: np.ndarray|int):
+    ret = (i16-0+1)/(255-0+1)
+    if isinstance(ret, np.ndarray):
+        return np.round(ret).astype(np.uint8)
+    elif isinstance(ret, float):
+        return np.uint8(np.round(ret))
+    else:
+        raise ValueError(f"Expected int or np.ndarray.")
 
 # %%
 # metadata = pd.read_excel(META.joinpath("Breastvax_geomx_metadata_table_JT_AR.xlsx"))
 metadata = pd.read_csv(META.joinpath("Breastvax_geomx_phenoData_for_JT_completed_FULL.tsv"), sep = "\t")
 
+dsp_channels = [
+        ( "blue", (0,0,255), 113, 1292 ),
+        ( "green", (0,255,0), 146, 572 ),
+        ( "yellow", (255,255,0), 143, 327 ),
+        ( "red", (255,0,0), 364, 766 ),
+        ]
 # %%
-scan = tifffile.imread(IMG.joinpath("2023.10.11_PC23_JUNE772_1_12-12-22_A.ome.tiff"), is_ome = True, level=0)
+scan = tifffile.imread(IMG.joinpath("2023.10.11_Slide3_PC23_JUNE772_4_12-14-22_D.ome.tiff"), is_ome = True, level=0)
+with tifffile.TiffFile(IMG.joinpath("2023.10.11_Slide3_PC23_JUNE772_4_12-14-22_D.ome.tiff")) as tif:
+    im = Image.fromarray(i16_i8(tif.asarray()[0]), mode="L")
+    
+im.size
+    d = ImageDraw.Draw(im)
+    im.save(f"/srv/http/breastvax/slide_4_down_{cname}.png")
+    # ome_metadata = tif.ome_metadata
+
+for cidx, cintensity in enumerate(dsp_channels):
+    im = Image.fromarray(i16_i8(scan_d[cidx]), mode="L")
+    cname, color, lower, upper = cintensity
+    print(cname)
+    im = ImageOps.colorize(im, black=(0,0,0), white=color, blackpoint=i16_i8(lower), whitepoint=i16_i8(upper))
+    d = ImageDraw.Draw(im)
+ome_metadata_parsed = ome_types.from_xml(ome_metadata)
+ome_metadata_parsed
+ome_metadata_parsed.structured_annotations.comment_annotations
+ome_metadata_parsed.structured_annotations.xml_annotations
+[p.split(",") for p in ome_metadata_parsed.rois[0].__dict__["union"].polygons[0].points.split(" ")]
+dir(ome_metadata_parsed)
+image.shape
+ome_metadata
+
 # fig, axes = plt.subplots(ncols=1,nrows=1,squeeze=False,figsize=(12,3))
 # for i in range(0,1):
 #     axes[0,i].imshow(scan[i])
@@ -41,31 +97,6 @@ ratio_noOff = np.divide(tiff_dim, scan_dim)
 scan_dim*ratio_noOff
 metadata["roi_x"].max()
 metadata["roi_y"].max()
-
-
-
-# %%
-def correct_roi_coords(x, y, area, resolution_level, x_offset=0, y_offset=0):
-    aligned = np.array([x+x_offset, y+y_offset])
-    xy_scaled = aligned*(1/(2**resolution_level))
-    # %% BUG: Aread scaling still isn't right
-    area_scaled = area*(1/(2**resolution_level))
-    return tuple([round(x) for x in [xy_scaled[0],xy_scaled[1], area_scaled]])
-
-# %%
-def i16_i8_arr(i16: np.array):
-    ret = (i16-0+1)/(255-0+1)
-    return ret.round()
-
-# %%
-def i16_i8(i16: np.ndarray|int):
-    ret = (i16-0+1)/(255-0+1)
-    if isinstance(ret, np.ndarray):
-        return np.round(ret).astype(np.uint8)
-    elif isinstance(ret, float):
-        return np.uint8(np.round(ret))
-    else:
-        raise ValueError(f"Expected int or np.ndarray.")
 
 # %%
 dsp_channels = [

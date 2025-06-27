@@ -1,5 +1,20 @@
 import pandas as pd
 
+# %% CHUNK: This function tries to pull an accepted modality from a an input string based on an input pattern {{{
+def get_modality_from_string(
+    string: str,
+    pattern: str,
+    accepted_modalities: dict[str, str],
+) -> str:
+    modality = get_substring(string, pattern)
+    if modality in accepted_modalities:
+        return accepted_modalities[modality]
+    else:
+        raise ValueError(f"Unexpected modality: `{modality}`")
+
+
+# }}}
+
 # %% CHUNK: Read in 10X index sheets {{{
 def read_10x_index_sheets(*args, workflow):
     column_renamer = {
