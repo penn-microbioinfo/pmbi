@@ -11,6 +11,7 @@ import pandas as pd
 import scanpy as sc
 import scipy.stats
 from joblib import Parallel, delayed
+import anndata
 
 import pmbi.anndata.io
 import pmbi.plotting as pmbip
@@ -167,7 +168,7 @@ def apply_cutoffs(row, cutoff_columns):
             (adata_filt.obs[qckey] >= row[qckey].loc["limits"][0])
             & (adata_filt.obs[qckey] <= row[qckey].loc["limits"][1])
         ].copy()
-        adata_filt.uns[f"cutoffs__{qckey}"] = row[qckey]
+        adata_filt.uns[f"cutoffs__{qckey}"] = row[qckey].to_dict()
     row["adata_filt"] = adata_filt
     return row
 
@@ -187,8 +188,6 @@ def expertimentName_to_subcategory(en):
 # %%
 def other_preproc(sample_id, adata, est_mult_rate, min_cells, meta2merge):
     assert len(meta2merge.index) == len(meta2merge.index.unique())
-    print(adata.is_view)
-    # adata = adata.copy()
     sc.pp.filter_genes(adata, min_cells=min_cells)
     sc.pp.scrublet(adata, expected_doublet_rate=est_mult_rate)
     adata.obs["original_barcode"] = adata.obs.index.to_list()
@@ -233,14 +232,9 @@ meta_to_obs = meta_to_obs[~meta_to_obs["Experiment_subcategory"].isna()]
 
 # %%
 cutoff_df = cutoff_df.progress_apply(apply_cutoffs, axis=1, args=(["pct_counts_mt", "n_genes_by_counts", "total_counts"],))
-cutoff_df.iloc[99,5]
 
 # %%
-cutoff_df_sav = cutoff_df.copy()
-cutoff_df_sav.iloc[99,5]
-
-# %%
-adata_preproc = Parallel(n_jobs=32)(
+adata_preproc = Parallel(n_jobs=32, verbose=10)(
     delayed(other_preproc)(sample_id, adata, est_mult_rate, min_cells, meta_to_obs)
     for sample_id, adata, est_mult_rate, min_cells in [
         (r.Index, r.adata_filt, r.est_mult_rate, 3)
@@ -249,16 +243,16 @@ adata_preproc = Parallel(n_jobs=32)(
 )
 
 ######################################
-# %% Multiplet rate estimates
+# %% Concatenate filtered AnnDatas and output for integration
 ######################################
-adatas = scp.read_h5ad_multi(paths, getkey=greg_getkey)
-for key, adata in adatas.items():
+for adata in adata_preproc:
     assert not any([vn.startswith("Hu.") for vn in adata.var_names])
-    adata.obs["orig_ident"] = key
 
-combined = anndata.concat(adatas.values(), axis=0, join="outer")
-combined = scp.obs_add_orig_barcode(combined)
-combined.write_h5ad(os.path.join(PROJ, "h5ad/combined_cbfilt_vaeda_raw_counts.h5ad"))
+
+pmbi.anndata.io.write_h5ad_multi({x.obs["sample_id"][0]: x for x in adata_preproc}, suffix="preproc", outdir="/home/amsesk/super2/h5ad/indiv_preproc")
+adata_preproc[0].uns["cutoffs__pct_counts_mt"].to_dict()
+combined = anndata.concat(adata_preproc, axis=0, join="outer")
+combined.write_h5ad("/home/amsesk/super2/h5ad/combined_raw_counts.h5ad")
 # %%
 # cutoff_df = cutoff_df.apply(lambda r: other_preproc(row=r, gene_filt_min_cells=3), axis=1)
 # cutoff_df.iloc[0,5].shape

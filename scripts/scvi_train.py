@@ -25,7 +25,7 @@ elif adata_path.suffix == ".h5ad":
 else:
     raise IOError("Unrecognized file extension: {adata_path.suffix}")
 
-scvi.model.SCVI.setup_anndata(adata, layer="raw_counts", batch_key=args.batch_key)
+scvi.model.SCVI.setup_anndata(adata, layer=args.layer, batch_key=args.batch_key)
 
 n_latent_values = [int(x) for x in args.n_latent_values.split(',')]
 
@@ -46,4 +46,3 @@ for nlv in n_latent_values:
     #pd.DataFrame(adata.obsm[repkey]).to_csv(f"simoni_{repkey}.csv")
 
 adata.write_h5ad(args.output)
-
