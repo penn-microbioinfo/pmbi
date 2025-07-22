@@ -8,6 +8,7 @@ import pmbi.bio.dna
 import pmbi.plotting as pmbip
 
 import numpy as np
+import pandas as pd
 
 importlib.reload(pmbip)
 
@@ -154,10 +155,10 @@ class PslAlignment(object):
         return (qseq, tseq)
 
     def _aln_track(self):
-        blocks = self._blocks()
-        repr = self._aln_repr()
+        # blocks = self._blocks()
+        _tlims, q_repr, t_repr  = self._aln_repr()
         aln_range = range(self.leading, self.leading + len(self._aln_repr_blocks()[0]))
-        track = [" "] * len(repr[0])
+        track = [" "] * len(q_repr)
         for i in aln_range:
             track[i] = "."
         return "".join(track)
@@ -180,10 +181,60 @@ class PslAlignment(object):
         last_block = self._blocks()[len(self._blocks()) - 1]
         return range(last_block.tE, last_block.tE + (self.qSize - last_block.qE))
 
+    def _aln_leading(self):
+        qb_repr, tb_repr = self._aln_repr_blocks()
+        blocks = self._blocks()
+        leading = 0
+        # Add leading parts of sequences to repr
+        q_leading = self.qSeq[0 : blocks[0].qS]
+        t_leading = self.tSeq[0 : blocks[0].tS]
+        # Add leading spaces
+        if len(q_leading) > len(t_leading):
+            diff = len(q_leading) - len(t_leading)
+            t_leading = " " * diff + t_leading
+            leading += len(t_leading)
+        elif len(q_leading) < len(t_leading):
+            diff = len(t_leading) - len(q_leading)
+            q_leading = " " * diff + q_leading
+            leading += len(q_leading)
+        else:
+            # Nothing to do
+            pass
+        assert( all([b==' ' for b in q_leading]) or [b==' 'for b in t_leading] )
+        return (q_leading, t_leading)
+
+    def _aln_trailing(self):
+        trailing = 0
+        # Add trailing parts of sequences to repr
+        blocks = self._blocks()
+        print(blocks[len(blocks) - 1].qE, self.qSize)
+        q_trailing = self.qSeq[blocks[len(blocks) - 1].qE : self.qSize]
+
+        print(blocks[len(blocks) - 1].tE, self.tSize)
+        t_trailing = self.tSeq[blocks[len(blocks) - 1].tE : self.tSize]
+        # Add trailing spaces
+        if len(q_trailing) > len(t_trailing):
+            diff = len(q_trailing) - len(t_trailing)
+            t_trailing = t_trailing + " " * diff
+            self.trailing = len(t_trailing)
+        elif len(q_trailing) < len(t_trailing):
+            diff = len(t_trailing) - len(q_trailing)
+            q_trailing = q_trailing + " " * diff
+            self.trailing = len(q_trailing)
+        else:
+            # Nothing to do
+            pass
+        assert( all([b==' ' for b in q_trailing]) or [b==' 'for b in t_trailing] )
+        return (q_trailing, t_trailing)
+
+    def _limits(self):
+        q_leading, t_leading = self._aln_leading()
+        q_trailing, t_trailing = self._aln_trailing()
     def _aln_repr(self):
         qb_repr, tb_repr = self._aln_repr_blocks()
         blocks = self._blocks()
         self.leading = 0
+        tlims = {"min": 0, "max": self.tSize}
         # Add leading parts of sequences to repr
         q_leading = self.qSeq[0 : blocks[0].qS]
         t_leading = self.tSeq[0 : blocks[0].tS]
@@ -192,6 +243,7 @@ class PslAlignment(object):
             diff = len(q_leading) - len(t_leading)
             t_leading = " " * diff + t_leading
             self.leading += len(t_leading)
+            tlims["min"] =  0 - diff
         elif len(q_leading) < len(t_leading):
             diff = len(t_leading) - len(q_leading)
             q_leading = " " * diff + q_leading
@@ -208,6 +260,7 @@ class PslAlignment(object):
             diff = len(q_trailing) - len(t_trailing)
             t_trailing = t_trailing + " " * diff
             self.trailing = len(t_trailing)
+            tlims["max"] = self.tSize + diff
         elif len(q_trailing) < len(t_trailing):
             diff = len(t_trailing) - len(q_trailing)
             q_trailing = q_trailing + " " * diff
@@ -217,10 +270,10 @@ class PslAlignment(object):
             pass
         q_repr = q_leading + qb_repr + q_trailing
         t_repr = t_leading + tb_repr + t_trailing
-        return (q_repr, t_repr)
+        return (tlims, q_repr, t_repr)
 
     def show(self, chunksize=100):
-        qseq, tseq = self._aln_repr()
+        _tlims, qseq, tseq = self._aln_repr()
         assert len(qseq) == len(tseq)
         breaks = list(range(0, len(tseq), chunksize))[0 : len(tseq)]
         lines = []
@@ -327,11 +380,15 @@ Target block size: {self.tbS}
 
 # }}}
 
+# %%
 
 # %% PslAln {{{
 class PslAlignmentCollection(object):
-    def __init__(self, target_seqs, query_seqs, rows: list[PslAlignment] = []):
-        self.rows = rows
+    def __init__(self, rows: list[PslAlignment]|None = None):
+        if rows is None:
+            self.rows = []
+        else:
+            self.rows = rows
 
     @staticmethod
     def from_file(
@@ -341,8 +398,7 @@ class PslAlignmentCollection(object):
         n: int | None = None,
         targetSeq_include: list[str] | None = None,
     ) -> PslAlignmentCollection:
-        # pa = PslAln(target_seqs=target_seqs, query_seqs=query_seqs)
-        pa = PslAlignmentCollection(target_seqs=target_seqs, query_seqs=query_seqs)
+        pa = PslAlignmentCollection()
         while not stream.readline().startswith("-"):
             continue
         i = 0
@@ -362,6 +418,24 @@ class PslAlignmentCollection(object):
 
     def append(self, row: PslAlignment):
         self.rows.append(row)
+
+    def filter(self, f, *args, **kwargs):
+        filt_rows = []
+        for r in self.rows:
+            if f(r, *args, **kwargs):
+                filt_rows.append(r)
+
+        return PslAlignmentCollection(rows=filt_rows)
+
+    def select(self, attrs):
+        ldict = []
+        for r in self.rows:
+            ldict.append({attr: getattr(r, attr) for attr in attrs})
+
+        return pd.DataFrame(ldict)
+
+    def as_dataframe(self):
+        return pd.DataFrame([r.inner for r in self.rows])
 
 class TargetAlignments(object):
     def __init__(self, pac: PslAlignmentCollection, target: str):

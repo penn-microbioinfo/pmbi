@@ -35,11 +35,18 @@ for rec in SeqIO.parse("loci_ref/Unique_1388_nov2019_noDegenerateNucl.fna", "fas
 # %% CHUNK: Read in the query sequences
 # que = "A00572:174:HGGKNDRXX:1:2101:3215:1078"
 # que_seq = None
-ques = {}
+ques = {
+    "R1": {},
+    "R2": {},
+}
 # with gzip.open(os.path.join(QUE_PREFIX, "AES537_R1.fa.gz"), 'rb') as gzfa:
 with gzip.open("fasta/AES103_R1.fa.gz", "rt") as fa:
     for rec in SeqIO.parse(fa, "fasta"):
-        ques[rec.id] = str(rec.seq)
+        ques["R1"][rec.id] = str(rec.seq)
+
+with gzip.open("fasta/AES103_R2.fa.gz", "rt") as fa:
+    for rec in SeqIO.parse(fa, "fasta"):
+        ques["R2"][rec.id] = str(rec.seq)
 
 # # %% Some unused functions {{{
 # def tostr(series):
@@ -51,21 +58,91 @@ with gzip.open("fasta/AES103_R1.fa.gz", "rt") as fa:
 #
 # }}}
 
-
 # %% CHUNK: Read in the PSL files
+importlib.reload(PSL)
 fs = [
     "psl/AES103_R1_blat.psl.gz",
     "psl/AES103_R2_blat.psl.gz",
 ]
 ldict = []
 importlib.reload(PSL)
+pac = {}
 with gzip.open(fs[0], "rt") as stream:
-    pa = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques, n=100000)
+    # pac["R1"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R1"])
+    pac["R1"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R1"], n=10000)
+
+# with gzip.open(fs[1], "rt") as stream:
+#     pac["R2"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R2"])
 
 # %%
-importlib.reload(PSL)
-ta = PSL.TargetAlignments(pac=pac, target='annotation-ENSACAG00000028667:3078-3478')
+this_one = "annotation-ENSACAG00000028334:1095-1495"
+def _tName_in(r, l):
+    if r.tName in l:
+        return True
+    else:
+        return False
 
+def _qName_in(r, l):
+    if r.qName in l:
+        return True
+    else:
+        return False
+
+# %%
+pa = pac["R1"]
+pa.rows._aln_trailing()
+for i,r in enumerate(pa.rows):
+    print(i)
+    r._aln_trailing()
+
+# %%
+pa.rows[0]._aln_trailing()
+# %%
+
+# # pac["R1"].rows
+# padf = pa.as_dataframe()
+# padf.shape
+# these_ones = pa.filter(_tName_in, [this_one]).select(["qName"])["qName"].tolist()
+# padf[padf["qName"].isin(these_ones)]["tStarts"].astype(str).value_counts()[1:50]
+# pa.filter(_qName_in, these_ones).select(["tName"]).value_counts()
+# pa.select(["qName"])["qName"].value_counts()
+#
+# pa.rows[1]._aln_repr_blocks()
+# pa.rows[2]._aln_repr()
+# pa.rows[2].leading
+# pa.rows[2].trailing
+# pa.rows[2].show()
+# pa.rows[0]._aln_repr()
+# pa.rows[1]._aln_leading()
+# pa.rows[1]._aln_trailing()
+# pa.rows[0].tSize
+# pa.rows[0].show()
+# pac["R1"].filter(lambda
+# %%
+importlib.reload(PSL)
+taR1 = PSL.TargetAlignments(pac=pac["R1"], target="annotation-ENSACAG00000000778:676-1076")
+taR2 = PSL.TargetAlignments(pac=pac["R2"], target="annotation-ENSACAG00000000778:676-1076")
+taR1.target_coverage()
+taR2.target_coverage()
+taR1_qname = [x.qName for x in taR1.rows]
+taR2_qname = [x.qName for x in taR2.rows]
+for qn in taR1_qname:
+    if qn in taR2_qname:
+        print(qn)
+
+print([x for x in taR1.rows if x.qName == "A00572:174:HGGKNDRXX:2:2258:7075:36699"][0])
+[x for x in taR1.rows if x.qName == "A00572:174:HGGKNDRXX:2:2258:7075:36699"][0].show()
+print("----")
+print([x for x in taR2.rows if x.qName == "A00572:174:HGGKNDRXX:2:2258:7075:36699"][0])
+[x for x in taR2.rows if x.qName == "A00572:174:HGGKNDRXX:2:2258:7075:36699"][0].show()
+
+[x.qName for x in taR1.rows]
+[x.qName for x in taR2.rows]
+len(taR2.rows)
+ta.rows[0].show()
+ta.aln
+
+# %%
 ta.target_coverage()
 # %%
 n_mm=list()
@@ -90,16 +167,18 @@ for a in ta.rows:
     #     tar_arr[m.targetPos] = nucl2int[m.queryBase]
     # ra.append(tar_arr)
 
-# %%
-panel = pmbip.Paneler(4,5,figsize=(12,16))
-TARS = pd.Series([x.tName for x in pa.rows]).value_counts()[0:20].index
-with gzip.open(fs[0], "rt") as stream:
-    pac = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques, n=None, targetSeq_include = TARS.tolist())
 
 # %%
+TARS = pd.Series([x.tName for x in pa.rows]).value_counts()[0:20].index
+TARS = pd.Index(["annotation-ENSACAG00000000778:676-1076", "annotation-ENSACAG00000028334:1095-1495"])
+TARS
+# with gzip.open(fs[0], "rt") as stream:
+#     pac = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques, n=None, targetSeq_include = TARS.tolist())
+
+# %%
+panel = pmbip.Paneler(4,5,figsize=(12,16))
 for TAR in TARS:
-    print(TAR)
-    ta = PSL.TargetAlignments(pac=pac, target=TAR)
+    ta = PSL.TargetAlignments(pac=pac["R1"], target=TAR)
     all_mm = list()
     for a in ta.rows:
         mm = pipe(map(lambda b: b.mismatches(a.qSeq, a.tSeq), a._blocks()), concat, list)
@@ -110,10 +189,14 @@ for TAR in TARS:
     mm_vc = pd.DataFrame(pipe(all_mm, concat, list))["targetPos"].value_counts()
     print(f"{TAR} - mm_plt_p_mm")
     # plt_p_mm = pd.DataFrame(index=range(0,len(ta.tSeq))).join(mm_vc).fillna(0).join(pd.DataFrame({"cov":tcov})).assign(prop_mm = lambda r: r["count"]/r["cov"])
-    queryBaseCounts = pd.DataFrame(pipe(all_mm, concat, list)).groupby(["targetPos", "queryBase"]).size().reset_index(name="Count").pivot_table(values="Count", columns="queryBase", index="targetPos")
+    queryBaseCounts = pd.DataFrame(pipe(all_mm, concat, list)).groupby(["targetPos", "queryBase"]).size().reset_index(name="Count").pivot_table(values="Count", columns="queryBase", index="targetPos").reindex(range(0,len(ta.tSeq)))
+    print(queryBaseCounts)
     mm_queryBase_prop = pd.DataFrame({"cov":tcov}).join(queryBaseCounts).reset_index(drop=False).rename(columns={"index": "targetPos"}).fillna(0).melt(id_vars=["targetPos", "cov"]).sort_values("targetPos").assign(prop_mm = lambda r: r["value"]/r["cov"])
+    mm_queryBase_prop["prop_mm"] = mm_queryBase_prop["prop_mm"].fillna(0)
+    print(mm_queryBase_prop)
     qB = mm_queryBase_prop["variable"].unique()
     mm_queryBase_prop_wide = mm_queryBase_prop.pivot_table(values = "prop_mm", index="targetPos", columns="variable")
+    print(mm_queryBase_prop_wide)
     print(f"{TAR} - bar")
     ax = panel.next_ax()
     bot = pd.Series([0]*len(ta.tSeq))
@@ -122,10 +205,12 @@ for TAR in TARS:
         bot = bot+mm_queryBase_prop_wide[b]
 
 panel.fig.savefig("/storage/anat/figures/targetPos_hm.pdf")
-mm_queryBase_prop
-len(ta.tSeq)
-queryBaseCounts
-len(tcov)
+# %%
+tn=[]
+for a in pac["R1"].rows: 
+    tn.append(a.tName)
+
+len(set(tn))
 # %%
 ta.rows[156]._aln_repr_blocks()
 panel = pmbip.Paneler(1,1,figsize=(6,6))
