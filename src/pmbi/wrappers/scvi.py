@@ -166,11 +166,15 @@ class ScviModeler(Modeler):
             normexpr = dataframe_into_csc(normexpr)
 
         else:
-            chunks = np.split(cell_indices, indices_or_sections=chunksize)
+            n_chunks = np.floor(self.data.shape[0]/chunksize)
+            print(f"n chunks: {n_chunks}")
+            chunks = np.array_split(cell_indices, n_chunks)
             normexpr = scipy.sparse.csc_array(
-                (1, len(self.data.var_names)), dtype=np.float32
+                (len(self.data.obs_names), len(self.data.var_names)), dtype=np.float32
             )
+            print(f"CSC array final shape will be: {normexpr.shape}")
             for chunk in chunks:
+                print(f"Chunk idx: {chunk}")
                 normexpr_chunk = self.model.get_normalized_expression(
                     adata=self.data,
                     n_samples=n_samples,
@@ -178,9 +182,10 @@ class ScviModeler(Modeler):
                     indices=chunk,
                     **kwargs,
                 )
+                chunk_as_csc = dataframe_into_csc(normexpr_chunk)
                 normexpr = scipy.sparse.vstack(
-                    normexpr, dataframe_into_csc(normexpr_chunk)
-                )
+                    (normexpr, chunk_as_csc)
+                    )
 
         return normexpr[0:, :]
 
