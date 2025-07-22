@@ -40,7 +40,7 @@ def _is_model_loaded(inner):
 class Modeler(object):
     def __init__(self, datafile: Path, batch_key="orig_ident"):
         self.batch_key = batch_key
-        self.datafile = datafile
+        self.datafile = Path(datafile)
         self.type_ = None
         self.ext = self.datafile.suffix.replace(".", "")
         self.sample_name = self.datafile.name.replace(self.ext, "")
@@ -148,15 +148,15 @@ class ScviModeler(Modeler):
             norm_expression = obj.get_normalized_expression(model, chunksize=100, n_samples=5)
         """
 
-        if not isinstance(model, scvi.model.SCVI):
+        if not isinstance(self.model, scvi.model.SCVI):
             raise ValueError
 
-        if not model.is_trained:
+        if not self.model.is_trained:
             raise ValueError
 
         cell_indices = np.arange(0, len(self.data.obs_names))
         if chunksize is None:
-            normexpr = model.get_normalized_expression(
+            normexpr = self.model.get_normalized_expression(
                 adata=self.data,
                 n_samples=n_samples,
                 library_size=library_size,
@@ -171,7 +171,7 @@ class ScviModeler(Modeler):
                 (1, len(self.data.var_names)), dtype=np.float32
             )
             for chunk in chunks:
-                normexpr_chunk = model.get_normalized_expression(
+                normexpr_chunk = self.model.get_normalized_expression(
                     adata=self.data,
                     n_samples=n_samples,
                     library_size=library_size,
