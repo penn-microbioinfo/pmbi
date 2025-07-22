@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import copy
 import gc
 import os
 import pathlib
 import re
-from typing import Optional
+from pathlib import Path
+from typing import Callable, Optional, Tuple, Type, TypeVar
 
 import anndata
 import matplotlib as mpl
@@ -11,14 +14,19 @@ import matplotlib.axes
 import matplotlib.axis
 import matplotlib.pyplot as plt
 import numpy as np
+import palettable
 import pandas as pd
 import scanpy as sc
 import scipy.io
+import scipy.signal
+import scipy.stats
 import scirpy as ir
 import seaborn as sns
 
 # local imports
 import pmbi.io
+import pmbi.plotting as pmbip
+from pmbi.logging import streamLogger
 
 global MT_CUT
 global NFEAT_CUT
@@ -29,6 +37,17 @@ NFEAT_CUT = (0.025, 0.90)
 NRNA_CUT = (0.025, 0.90)
 
 
+# %%
+def qc_kde(adata, key, x_len=1000):
+    if key not in adata.obs.columns:
+        raise ValueError(f"key not in obs: {key}")
+
+    X = adata.obs[key]
+    kde = scipy.stats.gaussian_kde(X)
+    # x_values = np.linspace(min(X), max(X), int(np.ceil(max(X)-min(X))))
+    x_values = np.linspace(min(X), max(X), x_len)
+    y_values = kde(x_values)
+    return (x_values, y_values)
 
 
 def adata_add_gct(adata: anndata.AnnData, gct_path: os.PathLike, rsuffix: str):
@@ -47,6 +66,7 @@ def adata_to_gct(adata, outpath, layer=None):
         out.write("#1.2\n")
         out.write(f"{len(adata.var_names)}\t{len(adata.obs_names)}\n")
         adata_df.to_csv(out, sep="\t", index=False)
+
 
 def combine_adatas(adatas: dict) -> anndata.AnnData:
     idented = {}
@@ -129,6 +149,222 @@ def add_var_column_by_index(adata, convert, new_colname):
     return adata
 
 
+class Interval:
+    def __init__(self, values: np.ndarray):
+        self.values = values
+
+    def min(self):
+        return self.values.min()
+
+    def max(self):
+        return self.values.max()
+
+    def as_index_of(self, X):
+        return X[self.values]
+
+
+T = TypeVar("T", bound="Points")
+
+
+class Points:
+    def __init__(self, xy: np.ndarray):
+        assert xy.ndim == 2, "xy should be a 2-dimensional array"
+        self.xy = xy
+
+    def __getitem__(self, key):
+        return Points(self.xy[key])
+
+    def __setitem__(self, key, value):
+        self.xy[key] = value
+
+    @classmethod
+    def from_xy(cls: Type[T], x: np.ndarray, y: np.ndarray) -> T:
+        return cls(xy=np.column_stack((x, y)))
+
+    @property
+    def x(self):
+        return self.xy[:, 0]
+
+    @property
+    def y(self):
+        return self.xy[:, 1]
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+
+
+class Curve(Points):
+    def __init__(self, xy: np.ndarray):
+        super().__init__(xy)
+
+    def axis_values(self, axis):
+        if axis not in ["x", "y"]:
+            raise ValueError(f"Axis must be in: {axis}")
+        return getattr(self, axis)
+
+    def critical_points(self):
+        first_derivative = self.dydx(order=1)
+        return first_derivative.crosses_zero_at()
+
+    def maxima(self):
+        dens_crits = self.critical_points()
+        second_derivative = self.dydx(order=2)
+        return np.array(
+            [xx for xx in dens_crits if second_derivative.y[xx] < 0], dtype=np.int64
+        )
+
+    def minima(self):
+        dens_crits = self.critical_points()
+        second_derivative = self.dydx(order=2)
+        return np.array(
+            [xx for xx in dens_crits if second_derivative.y[xx] > 0], dtype=np.int64
+        )
+
+    def dydx(self, order=1) -> Curve:
+        if order == 0:
+            return self
+        else:
+            dydx = np.gradient(self.y, self.x)
+
+            return Curve.from_xy(self.x, dydx).dydx(order=(order - 1))
+
+    def crosses_threshold_at(self, threshold, V_ignore_sign=True, axis="y"):
+        V = self.axis_values(axis=axis)
+        if V_ignore_sign:
+            V = abs(V)
+        return np.where(np.diff(np.sign(V - threshold)))[0]
+
+    def crosses_zero_at(self, axis="y"):
+        if axis not in ["x", "y"]:
+            raise ValueError(f"Axis must be in: {axis}")
+        return self.crosses_threshold_at(threshold=0.0, V_ignore_sign=False, axis=axis)
+
+    def threshold_intervals(self, threshold, V_ignore_sign=True, axis="y"):
+        V = self.axis_values(axis=axis)
+        if threshold == 0.0:
+            return [
+                Interval(s)
+                for s in np.split(range(0, len(V)), self.crosses_zero_at(axis=axis))
+            ]
+        else:
+            return [
+                Interval(s)
+                for s in np.split(
+                    range(0, len(V)),
+                    self.crosses_threshold_at(
+                        threshold, V_ignore_sign=V_ignore_sign, axis=axis
+                    ),
+                )
+            ]
+
+
+class CutoffMaker:
+    def __init__(self, X):
+        self.X = X
+
+
+class KdeCutoffMaker(CutoffMaker):
+    def __init__(
+        self, X, gradient_threshold=0.25, dens_x_len=100000, endpoint_buffer=3
+    ):
+        super().__init__(X)
+        self.gradient_threshold = gradient_threshold
+        self.dens_x_len = dens_x_len
+        self.endpoint_buffer = endpoint_buffer
+        self.dens = self._make_density_curve()
+        self.dens_rel = Curve.from_xy(
+            x=self.dens.x / self.dens.x.max(), y=self.dens.y / self.dens.y.max()
+        )
+
+    def _make_density_curve(self):
+        kde = scipy.stats.gaussian_kde(self.X)
+
+        # Buffer endpoints in preparation for taking derivatives with np.gradient, if needed
+        if self.endpoint_buffer > 0:
+            dens_x_unbuffered = np.linspace(min(self.X), max(self.X), self.dens_x_len)
+            dens_x_increment = np.diff(dens_x_unbuffered)[0]
+            buffered_min = min(self.X) - (self.endpoint_buffer * dens_x_increment)
+            buffered_max = max(self.X) + (self.endpoint_buffer * dens_x_increment)
+            dens_x = np.linspace(
+                buffered_min,
+                buffered_max,
+                (self.dens_x_len + (2 * self.endpoint_buffer)),
+            )
+        else:
+            dens_x = np.linspace(min(self.X), max(self.X), self.dens_x_len)
+
+        dens_y = kde(dens_x)
+        return Curve.from_xy(dens_x, dens_y)
+
+    # Returns a Curve based the relativized density curve on the derivative order. Buffered endpoints are truncated if they exist
+    def get_relative_curve(self, derivative_order=0):
+        x, y = self.dens_rel.dydx(order=derivative_order)
+        if self.endpoint_buffer > 0:
+            ret = Curve.from_xy(
+                x[self.endpoint_buffer : -(self.endpoint_buffer)],
+                y[self.endpoint_buffer : -(self.endpoint_buffer)],
+            )
+        else:
+            ret = Curve.from_xy(x, y)
+
+        assert (
+            ret.x.shape[0] == self.dens_x_len
+        ), "Shape of gotten curve is not as expected"
+        return ret
+
+    # Returns a Curve based the absolute density curve on the derivative order. Buffered endpoints are truncated if they exist
+    def get_curve(self, derivative_order=0):
+        x, y = self.dens.dydx(order=derivative_order)
+        if self.endpoint_buffer > 0:
+            ret = Curve.from_xy(
+                x[self.endpoint_buffer : -(self.endpoint_buffer)],
+                y[self.endpoint_buffer : -(self.endpoint_buffer)],
+            )
+        else:
+            ret = Curve.from_xy(x, y)
+
+        assert (
+            ret.x.shape[0] == self.dens_x_len
+        ), "Shape of gotten curve is not as expected"
+        return ret
+
+    def selection_interval(self):
+        relcurve_d0 = self.get_relative_curve(derivative_order=0)
+        relcurve_d1 = self.get_relative_curve(derivative_order=1)
+        t_intervals = relcurve_d1.threshold_intervals(threshold=self.gradient_threshold)
+        y_max = 1.0
+        most_prominent_interval_idx = np.where(
+            [y_max in ti.as_index_of(relcurve_d0.y) for ti in t_intervals]
+        )[0]
+        assert (
+            len(most_prominent_interval_idx) == 1
+        ), "More than 1 interval that includes the max y"
+        center_int_idx = most_prominent_interval_idx[0]
+        if len(t_intervals[center_int_idx].values) < 3:
+            raise ValueError(
+                "Center interval around max y has length < 3, this can screw up interval selection. Increase dens_x_len."
+            )
+        # print(center_int_idx)
+        intervals_to_cat = [
+            ti.values
+            for ti in t_intervals[(center_int_idx - 1) : (center_int_idx + 1) + 1]
+        ]
+        # print(intervals_to_cat)
+        # print(intervals_to_cat.shape)
+        selection_interval = np.concatenate(intervals_to_cat)
+        return selection_interval
+
+
+def axvspans_from_intervals(
+    ax: matplotlib.axes.Axes, intervals: list[Interval], colors: list[str], **kwargs
+):
+    for idx, interval in enumerate(intervals):
+        ax.axvspan(
+            xmin=interval.min(), xmax=interval.max(), color=colors[idx], **kwargs
+        )
+
+
 def std_qc_gex(
     adata: anndata.AnnData,
     sample_suffix: str = "sample",
@@ -138,8 +374,15 @@ def std_qc_gex(
     plot_save_path: os.PathLike = pathlib.Path("qc_violins.pdf"),
     plot_point_size: int = 1,
     mt_prefix: str = "mt-",
+    automatic_cutoff_opts=None,
     manual_cutoffs: Optional[dict] = None,
 ):
+
+    AUTOMATIC_CUTOFF_OPTS_DEFAULT = {"threshold": 0.50, "x_len": 100000}
+    AUTOMATIC_CUTOFF_OPTS = {}
+
+    logger = streamLogger("std_qc_gex")
+    plot_save_path = Path(plot_save_path)
 
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
@@ -148,6 +391,10 @@ def std_qc_gex(
     sc.pp.calculate_qc_metrics(
         adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
     )
+
+    AUTOMATIC_CUTOFF_OPTS = dict(AUTOMATIC_CUTOFF_OPTS_DEFAULT)
+    if automatic_cutoff_opts is not None:
+        AUTOMATIC_CUTOFF_OPTS.update(automatic_cutoff_opts)
 
     if manual_cutoffs is None:
         cuts = {
@@ -172,34 +419,96 @@ def std_qc_gex(
     adata.uns["qc_filter_ranges"] = copy.deepcopy(cuts)
 
     if plot:
-        panel = Paneler(ncol=3, nrow=1, figsize=(9, 3))
-        for key in cuts:
-            sc.pl.violin(
-                adata=adata,
-                keys=key,
-                jitter=0.4,
-                multi_panel=False,
-                save=False,
-                size=plot_point_size,
-                ax=panel.next_ax(),
-            )
-            panel.current_ax.axhline(y=cuts[key][0], color="r")
-            panel.current_ax.axhline(y=cuts[key][1], color="r")
-        panel.fig.suptitle(sample_suffix)
-        panel.savefig(plot_save_path)
+        panel = pmbip.Paneler(ncol=3, nrow=4, figsize=(8, 6))
+        threshold = AUTOMATIC_CUTOFF_OPTS["threshold"]
+        x_len = AUTOMATIC_CUTOFF_OPTS["x_len"]
+        for keyidx, key in enumerate(cuts):
+            x, y = qc_kde(adata, key, x_len=x_len)
+            y_rel = y / y.max()
+            x_rel = x / x.max()
+            dy_dx = np.gradient(y_rel, x_rel)
+            dy_dx_eq0 = np.where(np.diff(np.sign(dy_dx)))[0]
+            dy_dx_crosses_thresh = np.where(np.diff(np.sign(abs(dy_dx) - threshold)))[0]
+            dy_dx_2 = np.gradient(dy_dx, x_rel)
+            inflect_idx = np.where(np.diff(np.sign(dy_dx_2)) != 0)[0]
+            maxima = [xx for xx in dy_dx_eq0 if dy_dx_2[xx] < 0]
+            minima = [xx for xx in dy_dx_eq0 if dy_dx_2[xx] > 0]
+            # x_unit_width = (x.max()-x.min())/x_len
+            # height = 1/(x_len*10)
+            # width = np.ceil( x_len/100 )
 
-    adata = adata[
-        (adata.obs["pct_counts_mt"] <= cuts["pct_counts_mt"][1])
-        & (adata.obs["pct_counts_mt"] >= cuts["pct_counts_mt"][0])
-    ]
-    adata = adata[
-        (adata.obs["n_genes_by_counts"] <= cuts["n_genes_by_counts"][1])
-        & (adata.obs["n_genes_by_counts"] >= cuts["n_genes_by_counts"][0])
-    ]
-    adata = adata[
-        (adata.obs["total_counts"] <= cuts["total_counts"][1])
-        & (adata.obs["total_counts"] >= cuts["total_counts"][0])
-    ]
+            # These are intervals separated by the points where dy/dx crosses the thershold value
+            intervals = np.split(range(0, x_len), dy_dx_crosses_thresh)
+
+            # intervals_idx = np.split(range(0, x_len), maxima_minima_idx)
+            max_y = y_rel.max()
+            assert max_y == 1.0, "Maximum of relativized y values is not 1.0"
+
+            most_prominent_interval_idx = np.where(
+                [max_y in y_rel[xx] for xx in intervals]
+            )[0]
+            assert (
+                len(most_prominent_interval_idx) == 1
+            ), "More than 1 interval between inflection points that include the max y"
+            center_int_idx = most_prominent_interval_idx[0]
+            if len(intervals[center_int_idx]) < 3:
+                logger.warning(
+                    "Center interval around max y has length < 3, this can screw up interval selection. Increase x_len."
+                )
+            selection_interval = np.concatenate(
+                intervals[(center_int_idx - 1) : (center_int_idx + 1) + 1]
+            )
+            co = (selection_interval.min(), selection_interval.max())
+            print(x[co[0]], x[co[1]])
+            # print(center_int_idx)
+
+            cols = (palettable.cartocolors.qualitative.Pastel_10.mpl_colors) * 10
+            select_col = palettable.cartocolors.qualitative.Antique_10.mpl_colors
+
+            currax = panel._get_ax([0, keyidx])
+            currax.plot(x_rel, y_rel, marker=".", markersize=1)
+            currax.axvspan(
+                xmin=x_rel[selection_interval.min()],
+                xmax=x_rel[selection_interval.max()],
+                color=select_col[7],
+            )
+            currax.set_title(key)
+
+            for ii, yval in enumerate([y_rel, dy_dx, dy_dx_2]):
+                currax = panel._get_ax([ii + 1, keyidx])
+                for iii, interval in enumerate(intervals):
+                    currax.plot(
+                        x_rel[interval],
+                        yval[interval],
+                        marker=".",
+                        markersize=1,
+                        color=cols[iii],
+                    )
+                    currax.axhline(y=0, linewidth=0.5, c="black", linestyle="--")
+                    # currax.axvspan(xmin = x_rel[interval.min()], xmax=x_rel[interval.max()], color=cols[iii])
+                    currax.axvline(x=x_rel[interval.min()], linewidth=0.2, c="black")
+                for m in minima:
+                    currax.axvline(x=x_rel[m], linewidth=0.2, c="red")
+                for m in maxima:
+                    currax.axvline(x=x_rel[m], linewidth=0.2, c="blue")
+
+        panel.fig.suptitle(sample_suffix)
+        panel.fig.savefig(
+            plot_save_path.joinpath(f"{sample_suffix}_qc_kde_diagnostic.png")
+        )
+
+    # adata = adata[
+    #     (adata.obs["pct_counts_mt"] <= cuts["pct_counts_mt"][1])
+    #     & (adata.obs["pct_counts_mt"] >= cuts["pct_counts_mt"][0])
+    # ]
+    # adata = adata[
+    #     (adata.obs["n_genes_by_counts"] <= cuts["n_genes_by_counts"][1])
+    #     & (adata.obs["n_genes_by_counts"] >= cuts["n_genes_by_counts"][0])
+    # ]
+    # adata = adata[
+    #     (adata.obs["total_counts"] <= cuts["total_counts"][1])
+    #     & (adata.obs["total_counts"] >= cuts["total_counts"][0])
+    # ]
 
     return adata
 
@@ -320,13 +629,19 @@ def get_counts(
     else:
         return adata.layers[layer]
 
-def get_count_frame(
-    adata: anndata.AnnData, layer: str | None = None
-) -> pd.DataFrame:
+
+def get_count_frame(adata: anndata.AnnData, layer: str | None = None) -> pd.DataFrame:
     if layer is None:
-        return pd.DataFrame(adata.X.toarray(), index = adata.obs_names, columns = adata.var_names)
+        return pd.DataFrame(
+            adata.X.toarray(), index=adata.obs_names, columns=adata.var_names
+        )
     else:
-        return pd.DataFrame(adata.layers[layer].toarray(), index = adata.obs_names, columns = adata.var_names)
+        return pd.DataFrame(
+            adata.layers[layer].toarray(),
+            index=adata.obs_names,
+            columns=adata.var_names,
+        )
+
 
 def mean_expression(
     adata: anndata.AnnData, groupby: str | None = None, layer: str = None
@@ -430,4 +745,3 @@ if __name__ == "__main__":
         which_adata.var.to_csv(
             f"p13_split/{oi}.var", sep="\t", header=false, index=false
         )
-# %%

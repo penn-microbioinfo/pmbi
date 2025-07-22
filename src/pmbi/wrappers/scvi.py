@@ -18,6 +18,7 @@ import scvi
 import seaborn as sns
 import seaborn.objects as so
 import torch
+from pmbi.anndata.util import obs_names_unique
 
 import pmbi.wrappers.scanpy as scp
 
@@ -39,7 +40,7 @@ def _is_model_loaded(inner):
 class Modeler(object):
     def __init__(self, datafile: Path, batch_key="orig_ident"):
         self.batch_key = batch_key
-        self.datafile = datafile
+        self.datafile = Path(datafile)
         self.type_ = None
         self.ext = self.datafile.suffix.replace(".", "")
         self.sample_name = self.datafile.name.replace(self.ext, "")
@@ -48,7 +49,7 @@ class Modeler(object):
         self.model_n_latent = None
 
         self.data = self._reader(self.datafile)
-        if not scp.obs_names_unique(self.data):
+        if not obs_names_unique(self.data):
             raise ValueError("obs_names must be unique before adding to Modeler")
 
     def _io_funs(self):
@@ -69,9 +70,9 @@ class Modeler(object):
                 "Cannot write a model that does not exist. Train a model first"
             )
 
-        path = path or f"./{self.sample_name}_n_latent_{self.model.n_latent}_model"
+        path = path or f"./{self.sample_name}_n_latent_{self.model_n_latent}_model"
 
-        self.model.save(outname, overwrite=True)
+        self.model.save(path, overwrite=True)
 
     def load_model(self, model):
         self.model = self.type_.load(model, adata=self.data)
@@ -147,15 +148,15 @@ class ScviModeler(Modeler):
             norm_expression = obj.get_normalized_expression(model, chunksize=100, n_samples=5)
         """
 
-        if not isinstance(model, scvi.model.SCVI):
+        if not isinstance(self.model, scvi.model.SCVI):
             raise ValueError
 
-        if not model.is_trained:
+        if not self.model.is_trained:
             raise ValueError
 
         cell_indices = np.arange(0, len(self.data.obs_names))
         if chunksize is None:
-            normexpr = model.get_normalized_expression(
+            normexpr = self.model.get_normalized_expression(
                 adata=self.data,
                 n_samples=n_samples,
                 library_size=library_size,
@@ -170,7 +171,7 @@ class ScviModeler(Modeler):
                 (1, len(self.data.var_names)), dtype=np.float32
             )
             for chunk in chunks:
-                normexpr_chunk = model.get_normalized_expression(
+                normexpr_chunk = self.model.get_normalized_expression(
                     adata=self.data,
                     n_samples=n_samples,
                     library_size=library_size,
