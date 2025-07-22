@@ -102,6 +102,7 @@ def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
         # Assuming 'file_path' is a pathlib.Path object
         matrix_data = read_matrix(file_path)
     """
+    path = Path(path)
     if os.path.isdir(path):
         return sc.read_10x_mtx(path, **kwargs)
     else:

@@ -265,7 +265,59 @@ sc.pp.filter_genes(adata_day0, min_cells=3)
 adata_day0.shape
 adata_day0.write_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
 
+###################
+# %% ^^^ To Integration ^^^
+###################
 
+# %% Combined multiplet rate scatter
+adata_cc_day4 = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_CC_Day4_raw_counts.h5ad")
+adata_day0 = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
+
+# %%
+def observed_multiplet_rate(grp):
+    return len(np.where(grp["predicted_doublet"])[0])/grp.shape[0]
+
+cc_day4_mr = pd.DataFrame({"multiplet_rate": adata_cc_day4.obs.groupby("sample_id").apply(observed_multiplet_rate)})
+cc_day4_mr["object"] = "CC_Day4"
+day0_mr = pd.DataFrame({"multiplet_rate": adata_day0.obs.groupby("sample_id").apply(observed_multiplet_rate)})
+day0_mr["object"] = "Day0"
+combmr = pd.concat([cc_day4_mr, day0_mr], axis=0)
+combmr = pd.merge(left=combmr, right=coculture_meta[coculture_meta["Library_Type"]=="RNA"].set_index("Sample_Name")["Cells_in_Sample_Est"], how="left", left_index=True, right_index=True)
+cc_day4_mr = combmr[combmr["object"]=="CC_Day4"]
+day0_mr = combmr[combmr["object"]=="Day0"]
+cc_day4_mr
+# %%
+panel = pmbip.Paneler(nrow=1, ncol=1, figsize=(4,4))
+panel.next_ax().scatter(cc_day4_mr["Cells_in_Sample_Est"], cc_day4_mr["multiplet_rate"], marker=".", s=5, c="blue")
+panel.current_ax.scatter(day0_mr["Cells_in_Sample_Est"], day0_mr["multiplet_rate"], marker=".", s=5, c="red")
+panel.fig.savefig("/home/amsesk/figures/coculture/scrub_multiplet_rate.pdf")
+
+# %% Just making a subset for working with on macbook air
+test_adata = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
+coculture_meta[coculture_meta["Cells_in_Sample_Est"]==0]
+
+# %%
+
+sc.pp.normalize_total(test_adata)
+sc.pp.log1p(test_adata)
+sc.pp.highly_variable_genes(test_adata, n_top_genes=500, batch_key="sample_id")
+
+# %%
+def random_subset_adata(adata, n_cells, n_genes, from_most_variable=True):
+    cells_total, genes_total = adata.shape
+    cell_samp = np.random.randint(0, cells_total-1, size=(n_cells,))
+    if from_most_variable:
+        var_genes_idx = np.where(test_adata.var["highly_variable"])[0]
+        if n_genes > len(var_genes_idx):
+            n_genes = len(var_genes_idx)
+            gene_samp = var_genes_idx
+        else:
+            gene_samp = var_genes_idx[np.random.randint(0, n_genes, size=(n_genes,))]
+    else:
+        gene_samp = np.random.randint(0, genes_total-1, size=(n_genes,))
+    return adata[cell_samp, gene_samp]
+
+random_subset_adata(test_adata, 50000, 500).write_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts_50000x500_SUB.h5ad")
 
 
 # %%
