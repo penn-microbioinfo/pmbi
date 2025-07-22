@@ -46,15 +46,19 @@ psl_fields = [
 # A class that represents a row of a PSL alignment file
 # Combines and replaces PslRow and PslRowAln
 # %% CHUNK: PslAlignment {{{
-class PslAlignment(object):
+class PslAlignment:
     def __init__(self):
-        self.inner = {}
+        # self.inner = {}
+        super().__setattr__("inner", {})
 
     def __getattr__(self, key):
         if key in self.inner:
             return self.inner[key]
         else:
             raise KeyError(key)
+
+    def __setattr__(self, key, value):
+        super().__getattribute__("inner")[key] = value
 
     def __str__(self):
         return "\n".join([f"{k}: {v}" for k, v in self.inner.items()])
@@ -88,8 +92,10 @@ class PslAlignment(object):
         if inst.strand == "+":
             pass
         elif inst.strand == "-":
-            inst.qStart = inst.qSize - inst.qEnd
-            inst.qEnd = inst.qSize - inst.qStart
+            qStart_orig = inst.qStart
+            qEnd_orig = inst.qEnd
+            inst.inner["qStart"] = inst.inner["qSize"] - qEnd_orig
+            inst.inner["qEnd"] = inst.inner["qSize"] - qStart_orig
         else:
             raise ValueError(f"Invalid strand: {inst.strand}")
 
@@ -164,14 +170,15 @@ class PslAlignment(object):
         return "".join(track)
 
     def n_leading_query(self):
-        blocks = self._blocks()
-        first_block = blocks[0]
-        return first_block.qS
+        return self.qStart
 
     def n_trailing_query(self):
-        blocks = self._blocks()
-        last_block = blocks[len(blocks) - 1]
-        return self.qSize - last_block.qE
+        return self.qSize - self.qEnd
+
+    # def n_trailing_query(self):
+    #     blocks = self._blocks()
+    #     last_block = blocks[len(blocks) - 1]
+    #     return self.qSize - last_block.qE
 
     def leading_query_pos(self):
         first_block = self._blocks()[0]
@@ -290,9 +297,7 @@ class PslAlignment(object):
             )
         print("\n".join(lines))
 
-
 # }}}
-
 
 # %% CHUNK: Block class {{{
 class Block(object):
@@ -352,35 +357,6 @@ Target block size: {self.tbS}
                     )
                 )
         return mm
-
-
-# @staticmethod
-# def _correct_ends(qS, qE, tS, tE, psl_bs, qSize, tSize):
-#     if ( (tS+(qE-qS)) > tSize ):
-#         corrected_qE = qS+psl_bs
-#     else:
-#         corrected_qE = qE
-#     if ( (qS+(tE-tS)) > qSize ):
-#         corrected_tE = tS+psl_bs
-#     else:
-#         corrected_tE = tE
-#     return(corrected_qE, corrected_tE)
-# def reaches_end_of_query(self):
-#     if self.qS+self.tbS > self.qSize:
-#         return True
-#     else:
-#         return False
-# def reaches_end_of_target(self):
-#     if self.tS+self.qbS > self.tSize:
-#         self.qE = self.qS+self.psl_bs
-#         return True
-#     else:
-#         return False
-
-
-# }}}
-
-# %%
 
 # %% PslAln {{{
 class PslAlignmentCollection(object):
