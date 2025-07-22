@@ -169,6 +169,7 @@ def apply_cutoffs(row, cutoff_columns):
             & (adata_filt.obs[qckey] <= row[qckey].loc["limits"][1])
         ].copy()
         adata_filt.uns[f"cutoffs__{qckey}"] = row[qckey].to_dict()
+        adata_filt.uns[f"cutoffs__{qckey}"]["limits"] = list(adata_filt.uns[f"cutoffs__{qckey}"]["limits"])
     row["adata_filt"] = adata_filt
     return row
 
@@ -250,9 +251,23 @@ for adata in adata_preproc:
 
 
 pmbi.anndata.io.write_h5ad_multi({x.obs["sample_id"][0]: x for x in adata_preproc}, suffix="preproc", outdir="/home/amsesk/super2/h5ad/indiv_preproc")
-adata_preproc[0].uns["cutoffs__pct_counts_mt"].to_dict()
 combined = anndata.concat(adata_preproc, axis=0, join="outer")
-combined.write_h5ad("/home/amsesk/super2/h5ad/combined_raw_counts.h5ad")
+combined.obs["Experiment_subcategory"].unique()
+
+combined
+adata_cc_day4 = combined[combined.obs["Experiment_subcategory"].isin(["CC", "Day4"])].copy()
+sc.pp.filter_genes(adata_cc_day4, min_cells=3)
+adata_cc_day4.shape
+adata_cc_day4.write_h5ad("/home/amsesk/super2/h5ad/combined_CC_Day4_raw_counts.h5ad")
+
+adata_day0 = combined[combined.obs["Experiment_subcategory"].isin(["Day0"])].copy()
+sc.pp.filter_genes(adata_day0, min_cells=3)
+adata_day0.shape
+adata_day0.write_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
+
+
+
+
 # %%
 # cutoff_df = cutoff_df.apply(lambda r: other_preproc(row=r, gene_filt_min_cells=3), axis=1)
 # cutoff_df.iloc[0,5].shape

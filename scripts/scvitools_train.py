@@ -3,6 +3,7 @@ import sys
 import torch
 import numpy as np
 import pmbi.wrappers.scvi as pmbint
+from pathlib import Path
 
 torch.set_float32_matmul_precision("medium")
 
@@ -14,8 +15,7 @@ parser.add_argument("-o", "--output_prefix", help = "Prefix for output files.")
 parser.add_argument("-n", "--n_latent_values", help = "Comma-separated list of latent values for trains models for.")
 args = parser.parse_args()
 
-m = pmbint.ScviModeler(batch_key=args.batch)
-m.read(args.data)
+m = pmbint.ScviModeler(datafile=Path(args.data), batch_key=args.batch)
 m.setup_data(layer = args.layer)
 for nlv in args.n_latent_values.split(','):
     nlv=int(nlv)
@@ -25,4 +25,4 @@ for nlv in args.n_latent_values.split(','):
     #ne = m.get_normalized_expr(nlv, as_layer= False)
     np.save(f"{m.sample_name}_X_scvi_n_latent_{nlv}", lr)
     #np.save(f"{m.sample_name}_normExp_scvi_n_latent_{nlv}", ne)
-    m.save_model(nlv) 
+    m.write() 
