@@ -17,7 +17,6 @@ from pmbi.s3.lib import object_key_list
 from pmbi.cellranger.util import get_modality_from_string 
 from pmbi.util.misc import get_substring
 
-
 # %% CHUNK: SheetHandler - bad name as not inheriting from Handler {{{
 class SheetHandler(object):
     def __init__(self, path: Path):

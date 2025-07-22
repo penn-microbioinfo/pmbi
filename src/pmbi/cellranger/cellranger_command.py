@@ -87,7 +87,7 @@ class CellrangerCollection:
     def get_units(self) -> list[CellrangerUnit]:
         """Split collection into individual sample units"""
         units = []
-        for sample in self.table["sample"].unique():
+        for sample in self.samples():
             unit_files = self.table[self.table["sample"] == sample].copy()
             units.append(
                 CellrangerUnit(
@@ -97,6 +97,13 @@ class CellrangerCollection:
                 )
             )
         return units
+
+    def samples(self):
+        return self.table["sample"].unique()
+
+    def modalities_per_sample(self) -> pd.Series:
+        return self.table.groupby("sample")['modality'].nunique()
+        
 
 class CellrangerUnit:
     
@@ -219,12 +226,6 @@ class CellrangerRunner:
                 + self.more_args()
         )))
 
-    def _check_output_exists(self):
-        if self.outs_dest.exists():
-            mes = f"Output directory exists. Skipping myself: {self.id}"
-            self.logger.critical(mes)
-            raise OSError(mes)
-
     def cleanup(self):
         outs_src = self.wd / self.id / "outs"
         outs_dest = self.outs_dest
@@ -233,10 +234,15 @@ class CellrangerRunner:
         self.csv_base.unlink()
         
     def run(self):
-        logger = streamLogger("cellranger_multi")
-        logger.info(f"Changing directory: {self.wd}")
-        os.chdir(self.wd)
-        logger.info(f"Writing config csv to: {self.wd / self.csv_base}")
-        self.unit.config_csv.write(self.csv_base)
-        pmbiproc.run_and_log(cmd=self.cmd(), logger=logger)
-        self.cleanup()
+        if self.outs_dest.exists():
+            mes = f"Output directory exists. Skipping myself: {self.id}"
+            self.logger.critical(mes)
+            raise OSError(mes)
+        else:
+            logger = streamLogger("cellranger_multi")
+            logger.info(f"Changing directory: {self.wd}")
+            os.chdir(self.wd)
+            logger.info(f"Writing config csv to: {self.wd / self.csv_base}")
+            self.unit.config_csv.write(self.csv_base)
+            pmbiproc.run_and_log(cmd=self.cmd(), logger=logger)
+            self.cleanup()

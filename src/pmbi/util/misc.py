@@ -1,6 +1,8 @@
 from pprint import pprint
+from pathlib import Path
 import os
 import re
+from traceback import format_list
 
 import awkward as ak
 import pandas as pd
@@ -20,21 +22,6 @@ def get_substring(string: str, pattern: str) -> str:
         raise ValueError(
             f"No match found for pattern `{pattern}` in string: `{string}`"
         )
-# }}}
-
-# %% CHUNK: This function tries to pull an accepted modality from a an input string based on an input pattern {{{
-def get_modality_from_string(
-    string: str,
-    pattern: str,
-    accepted_modalities: dict[str, str],
-) -> str:
-    modality = get_substring(string, pattern)
-    if modality in accepted_modalities:
-        return accepted_modalities[modality]
-    else:
-        raise ValueError(f"Unexpected modality: `{modality}`")
-
-
 # }}}
 
 def ak_print(arr: ak.Array) -> None:
@@ -106,3 +93,25 @@ def is_ipython():
         return True
     except NameError:
         return False
+
+# %% FUNC: Check for broken symlinks
+def symlink_is_valid(path: os.PathLike) -> bool:
+    path = Path(path)
+    if path.exists(follow_symlinks=False):
+        if path.is_symlink():
+            return path.exists(follow_symlinks=True)
+        else:
+            raise ValueError(f"Path is not a symlink: {path}")
+    else:
+        raise ValueError(f"Path does not exist: {path}")
+
+
+# %%
+symlink_is_valid("/home/amsesk/super1/t1d-coculture/all_fastq_symlinks/HPAP-135_CC_1_ADT_S49_L001_R1_001.fastq.gz")
+symlink_is_valid("/home/amsesk/super1/t1d-coculture/blahblah")
+
+Path(Path(Path("/home/am")))
+
+
+# %%
+

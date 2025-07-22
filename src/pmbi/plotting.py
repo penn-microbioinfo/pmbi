@@ -167,6 +167,15 @@ class Paneler(object):
                 filename=f"{self.output_prefix}_{self.image_num}.{self.format}"
             )
 
+def axvlines(ax, xintercepts, **kwargs):
+    for x in xintercepts:
+        ax.axvline(x=x, **kwargs)
+
+def axvspans(ax, xmins, xmaxes, **kwargs):
+    for xmin,xmax in zip(xmins, xmaxes):
+        ax.axvspan(xmin=xmin, xmax=xmax, **kwargs)
+
+
 # %%
 THEME_SPEC = {
     "axislabels": {
@@ -255,7 +264,7 @@ def heatmap(
     cmap=palettable.scientific.sequential.Hawaii_20_r.mpl_colormap,
     theme=Theme(),
 ):
-    ax.imshow(matrix, cmap=cmap, aspect=aspect)
+    im = ax.imshow(matrix, cmap=cmap, aspect=aspect)
     if annot is not None:
         cell_text = pd.DataFrame(
             np.array(
@@ -280,4 +289,4 @@ def heatmap(
     ax.set_xticklabels(matrix.columns, fontsize=theme.ticklabels.fontsize)
     ax.set_yticks(range(0, nrow))
     ax.set_yticklabels(matrix.index, fontsize=theme.ticklabels.fontsize)
-    return None
+    return im

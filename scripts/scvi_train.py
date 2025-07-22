@@ -13,6 +13,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-a", "--adata", help = "Name of input h5ad file.")
 parser.add_argument("-o", "--output", help = "Name of output h5ad file.")
 parser.add_argument("-n", "--n_latent_values", help = "Comma-separated list of latent values for trains models for.")
+parser.add_argument("-b", "--batch_key", default="orig_ident", help = "Key in adata.obs to use as batch key.")
+parser.add_argument("-l", "--layer", default="counts", help = "Layer in adata.layers that contains the raw counts.")
 args = parser.parse_args()
 
 adata_path = pathlib.Path(args.adata)
@@ -23,7 +25,7 @@ elif adata_path.suffix == ".h5ad":
 else:
     raise IOError("Unrecognized file extension: {adata_path.suffix}")
 
-scvi.model.SCVI.setup_anndata(adata, layer="raw_counts", batch_key="orig_ident")
+scvi.model.SCVI.setup_anndata(adata, layer="raw_counts", batch_key=args.batch_key)
 
 n_latent_values = [int(x) for x in args.n_latent_values.split(',')]
 
