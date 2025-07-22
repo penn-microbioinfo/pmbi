@@ -70,9 +70,9 @@ class Modeler(object):
                 "Cannot write a model that does not exist. Train a model first"
             )
 
-        path = path or f"./{self.sample_name}_n_latent_{self.model.n_latent}_model"
+        path = path or f"./{self.sample_name}_n_latent_{self.model_n_latent}_model"
 
-        self.model.save(outname, overwrite=True)
+        self.model.save(path, overwrite=True)
 
     def load_model(self, model):
         self.model = self.type_.load(model, adata=self.data)
