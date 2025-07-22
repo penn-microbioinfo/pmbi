@@ -18,6 +18,7 @@ import scvi
 import seaborn as sns
 import seaborn.objects as so
 import torch
+from pmbi.anndata.util import obs_names_unique
 
 import pmbi.wrappers.scanpy as scp
 
@@ -48,7 +49,7 @@ class Modeler(object):
         self.model_n_latent = None
 
         self.data = self._reader(self.datafile)
-        if not scp.obs_names_unique(self.data):
+        if not obs_names_unique(self.data):
             raise ValueError("obs_names must be unique before adding to Modeler")
 
     def _io_funs(self):
