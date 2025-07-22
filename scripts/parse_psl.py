@@ -4,6 +4,8 @@ import gzip
 import importlib
 import os
 import re
+import itertools
+import functools
 from collections import namedtuple
 from termios import N_MOUSE
 
@@ -57,25 +59,8 @@ with gzip.open("fasta/AES103_R2.fa.gz", "rt") as fa:
 #     df.loc[r,c] = ins_d
 #
 # }}}
-
-# %% CHUNK: Read in the PSL files
-importlib.reload(PSL)
-fs = [
-    "psl/AES103_R1_blat.psl.gz",
-    "psl/AES103_R2_blat.psl.gz",
-]
-ldict = []
-importlib.reload(PSL)
-pac = {}
-with gzip.open(fs[0], "rt") as stream:
-    # pac["R1"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R1"])
-    pac["R1"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R1"], n=10000)
-
-# with gzip.open(fs[1], "rt") as stream:
-#     pac["R2"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R2"])
-
 # %%
-this_one = "annotation-ENSACAG00000028334:1095-1495"
+
 def _tName_in(r, l):
     if r.tName in l:
         return True
@@ -88,12 +73,100 @@ def _qName_in(r, l):
     else:
         return False
 
+# %% CHUNK: Read in the PSL files
+importlib.reload(PSL)
+fs = [
+    "psl/AES103_R1_blat.psl.gz",
+    "psl/AES103_R2_blat.psl.gz",
+]
+ldict = []
+importlib.reload(PSL)
+pac = {}
+with gzip.open(fs[0], "rt") as stream:
+    pac["R1"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R1"])
+
+# with gzip.open(fs[1], "rt") as stream:
+#     pac["R2"] = PSL.PslAlignmentCollection.from_file(stream, target_seqs=tars, query_seqs=ques["R2"])
+
+
 # %%
+this_one = "annotation-ENSXETG00000005933:1-401"
 pa = pac["R1"]
-pa.rows._aln_trailing()
-for i,r in enumerate(pa.rows):
-    print(i)
-    r._aln_trailing()
+pa_filt = pa.filter(lambda r: r.tName == this_one)
+
+
+# %%
+# n_blocks = []
+# all_mm = []
+# for r in pa_filt.rows:
+#     blks = r._blocks()
+#     mm = []
+#     for blk in blks:
+#         mm.append([x.targetPos for x in blk.mismatches(r.qSeq, r.tSeq)])
+#     all_mm.append(mm)
+
+# %%
+nucl_to_int = {
+    "A": 0,
+    "T": 1,
+    "C": 2,
+    "G": 3,
+    "N": 4,
+    "-": 5
+}
+# TODO: Incorporate gaps, if needed
+# TODO: Test with multiple blocks - currently testing on an alignment that only has one block
+def blk_target_idx(blk, qSeq, tSeq, qidx):
+    qSeq = np.array(list(qSeq))
+    tSeq = np.array(list(tSeq))
+    t_pos = pd.Index(np.arange(blk.tS, blk.tE))
+    q_aln_range = np.arange(blk.qS, blk.qE)
+    return pd.DataFrame({"t_pos": t_pos, f"q{qidx}": [nucl_to_int[n] for n in qSeq[q_aln_range]]})
+
+def leading_target_idx(r, qidx):
+    qSeq = np.array(list(r.qSeq))
+    t_pos = np.arange( r.tStart-r.n_leading_query(), r.tStart)  
+    q_range = np.arange(0, r.n_leading_query())
+    return pd.DataFrame({"t_pos": t_pos, f"q{qidx}": [nucl_to_int[n] for n in qSeq[q_range]]})
+
+def trailing_target_idx(r, qidx):
+    qSeq = np.array(list(r.qSeq))
+    t_pos = np.arange( r.tEnd, r.tEnd+r.n_trailing_query())  
+    q_range = np.arange(r.qEnd, r.qEnd+r.n_trailing_query())
+    return pd.DataFrame({"t_pos": t_pos, f"q{qidx}": [nucl_to_int[n] for n in qSeq[q_range]]})
+
+[x.n_trailing_query() for x in pa_filt.rows]
+# %%
+alns = []
+for qidx,row in enumerate(pa_filt.rows):
+    la = leading_target_idx(row, qidx)
+    ba = blk_target_idx(row._blocks()[0], row.qSeq, row.tSeq, qidx)
+    ta = trailing_target_idx(row, qidx)
+    fa = pd.concat([la, ba, ta], axis=0)
+    assert all(fa["t_pos"].to_numpy() == np.arange(fa["t_pos"].min(), fa["t_pos"].max()+1))
+    alns.append(fa)
+
+# %%
+full_aln = functools.reduce(lambda left,right: pd.merge(left, right, how="outer", on="t_pos"), alns).transpose()
+full_aln.columns = np.array(full_aln.loc["t_pos"])
+full_aln = full_aln.drop("t_pos", axis=0)
+
+# %%
+assert all(np.array(full_aln.columns) == np.arange(xticks.min(), xticks.max()+1))
+xticks = np.array(full_aln.columns)
+xticks = np.arange(xticks.min(), xticks.max()+1, step=5)
+
+
+panel = pmbip.Paneler(nrow=1, ncol=1, figsize=(12,12))
+pmbip.heatmap(matrix=full_aln, ax = panel.next_ax(), xlab = "pos", ylab = "query") 
+# panel.current_ax.set_xticks(ticks=xticks, labels=xticks)
+panel.fig.savefig("/storage/anat/figures/full_aln_hm.pdf")
+
+# %%
+pd.Series(n_blocks).value_counts()
+# %%
+    print(r)
+    break
 
 # %%
 pa.rows[0]._aln_trailing()
@@ -153,7 +226,7 @@ nucl2int = {
     "A": 1,
     "T": 2,
     "C": 3,
-    "G": 4,
+ "G": 4,
 }
 for a in ta.rows:
     mm = pipe(map(lambda b: b.mismatches(a.qSeq, a.tSeq), a._blocks()), concat, list)
