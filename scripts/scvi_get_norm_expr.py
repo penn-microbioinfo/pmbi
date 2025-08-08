@@ -21,4 +21,6 @@ normexpr = modeler.get_normalized_expression(
         n_samples = args.n_samples,
         library_size = args.library_size
         )
+print(normexpr)
+print(normexpr.shape)
 scipy.sparse.save_npz(file=output_path, matrix=normexpr)

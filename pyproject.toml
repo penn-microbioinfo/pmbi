@@ -43,16 +43,18 @@ dependencies = [
     "munch>=4.0.0",
     "boto3>=1.35.66",
     "openpyxl",
-    "tifffile",
-    "imagecodecs",
     "pyvcf3",
-    "tqdm",
+    "tqdm"
     ]
 
 [project.optional-dependencies]
 gpu = [
     "scvi-tools>=1.1.2",
     "torch>=2.3.0"
+    ]
+image = [
+    "tifffile",
+    "imagecodecs"
     ]
 dev = [
     "black@git+https://github.com/psf/black#egg=master",

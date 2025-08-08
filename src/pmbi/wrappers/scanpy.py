@@ -122,9 +122,9 @@ def percent_expressing(
     print(frame.groupby(groupby).agg(lambda x: len([v for v in x if v != 0.0])))
 
 
-def cluster_leiden(adata, resolutions):
+def cluster_leiden(adata, resolutions, **kwargs):
     for r in resolutions:
-        sc.tl.leiden(adata, resolution=r, key_added=f"leiden_{r}")
+        sc.tl.leiden(adata, resolution=r, key_added=f"leiden_{r}", **kwargs)
         # adata.obs[f"leiden_{r}"] = adata.obs[f"leiden_{r}"].astype(str) + "__" + adata.obs[f"orig_ident"].astype(str)
 
 

@@ -18,9 +18,9 @@ import scvi
 import seaborn as sns
 import seaborn.objects as so
 import torch
-from pmbi.anndata.util import obs_names_unique
 
 import pmbi.wrappers.scanpy as scp
+from pmbi.anndata.util import obs_names_unique
 
 
 def _is_model_loaded(inner):
@@ -55,7 +55,8 @@ class Modeler(object):
     def _io_funs(self):
         if self.ext == "h5ad":
             return (anndata.read_h5ad, anndata._io.h5ad.write_h5ad)
-        elif self.ext == "h5mu": return (mudata.read_h5mu, mudata._core.mudata.MuData.write_h5mu)
+        elif self.ext == "h5mu":
+            return (mudata.read_h5mu, mudata._core.mudata.MuData.write_h5mu)
         else:
             raise ValueError(f"Unexpected file extension: {self.datafile.suffix}")
 
@@ -166,28 +167,49 @@ class ScviModeler(Modeler):
             normexpr = dataframe_into_csc(normexpr)
 
         else:
-            n_chunks = np.floor(self.data.shape[0]/chunksize)
+            col_range = list(range(0, self.data.shape[1]))
+            n_chunks = np.floor(self.data.shape[0] / chunksize)
+            chunk_mats = []
             print(f"n chunks: {n_chunks}")
             chunks = np.array_split(cell_indices, n_chunks)
-            normexpr = scipy.sparse.csc_array(
-                (len(self.data.obs_names), len(self.data.var_names)), dtype=np.float32
-            )
-            print(f"CSC array final shape will be: {normexpr.shape}")
-            for chunk in chunks:
-                print(f"Chunk idx: {chunk}")
+            # normexpr = scipy.sparse.csc_array(
+            #     (len(self.data.obs_names), len(self.data.var_names)), dtype=np.float32
+            # )
+            # print(f"CSC array final shape will be: {normexpr.shape}")
+            for chunk_idx, chunk in enumerate(chunks):
+                row_idx = []
+                col_idx = []
+                values = []
+                print(f"Chunk idx: {chunk_idx}")
                 normexpr_chunk = self.model.get_normalized_expression(
                     adata=self.data,
                     n_samples=n_samples,
                     library_size=library_size,
                     indices=chunk,
+                    return_numpy=True,
                     **kwargs,
                 )
-                chunk_as_csc = dataframe_into_csc(normexpr_chunk)
-                normexpr = scipy.sparse.vstack(
-                    (normexpr, chunk_as_csc)
-                    )
+                print(normexpr_chunk)
+                print(normexpr_chunk.shape)
+                row_idx = list(itertools.chain.from_iterable( ([c] * len(col_range) for c in range(0,len(chunk))) ))
+                col_idx = col_range*len(chunk)
+                values = normexpr_chunk.reshape(-1)
+                this_mat = scipy.sparse.coo_matrix( (values, (row_idx, col_idx)), shape=(len(chunk), len(col_range)))
+                print(this_mat)
+                print(this_mat.shape)
+                chunk_mats.append(this_mat)
+                if chunk_idx == 2:
+                    break
+                # chunk_as_csc = dataframe_into_csc(normexpr_chunk)
+                # normexpr = scipy.sparse.vstack(
+                #     (normexpr, chunk_as_csc)
+                #     )
+                # normexpr.eliminate_zeros()
 
-        return normexpr[0:, :]
+            normexpr = scipy.sparse.vstack(chunk_mats)
+            print(normexpr.shape)
+
+        return normexpr.tocsc()
 
     ### Needs checking ###
     @_is_model_loaded

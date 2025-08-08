@@ -2,28 +2,56 @@ import argparse
 import functools
 import importlib
 import re
+import random
+from os import PathLike
 from pathlib import Path
 
+import anndata
 import numpy as np
-from tqdm import tqdm
 import palettable
 import pandas as pd
 import scanpy as sc
 import scipy.stats
+import toolz
 from joblib import Parallel, delayed
-import anndata
+from joblib_progress import joblib_progress
+from tqdm import tqdm
 
 import pmbi.anndata.io
 import pmbi.plotting as pmbip
 import pmbi.wrappers.scanpy as scp
 from pmbi.cellranger.globals import ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
+import pmbi.scanpy.qc.cutoffs as pqc
+
 
 importlib.reload(scp)
 
 sc._settings.ScanpyConfig.n_jobs = 1
 tqdm.pandas()
 
+#################
+# %% Project specific functions
+#################
+def experimentName_to_subcategory(en):
+    """
+    Function specific to the Betts Coculture project 
+
+    Extracts the larger experiment type from the more specific experiment name
+    """
+    en_suff = en.split("_", 1)[1]
+    s = re.search("Day[0-9]", en_suff)
+    match s:
+        case None:
+            if en_suff.endswith("CC"):
+                return "CC"
+            else:
+                return pd.NA
+        case _:
+            return s.group(0)
+
+#################
 # %% ArgumentParser
+#################
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "-m",
@@ -54,26 +82,39 @@ matrix_dir = Path("/home/amsesk/super2/cellranger/")
 mt_prefix = "MT-"
 cols = (palettable.cartocolors.qualitative.Pastel_10.mpl_colors) * 10
 
-
-# %%
-def _compute(o, mt_prefix, cols, figout, no_lower=None, no_upper=None):
-    if no_lower is None:
-        no_lower = []
-    if no_upper is None:
-        no_upper = []
-    sample_name = o.name.split("__")[0]
+################
+# %% Read in adatas and do a little prepocessing, calculate qc metrics, etc
+################
+fs = list(matrix_dir.iterdir())
+adatas = {}
+for o in fs:
+    sample_id = o.name.split("__")[0]
     matrix_path = o.joinpath(
-        f"per_sample_outs/{sample_name}/count/sample_filtered_feature_bc_matrix.h5"
+        f"per_sample_outs/{sample_id}/count/sample_filtered_feature_bc_matrix.h5"
     )
     adata = pmbi.anndata.io.read_matrix(matrix_path, gex_only=True)
     adata.var_names_make_unique()
+    adata.obs["sample_id"] = sample_id
+    adata.obs["original_barcode"] = adata.obs.index.to_list()
+    adata.obs.index = pd.Index([f"{bc}__{sample_id}" for bc in adata.obs.index])
     adata.layers["counts"] = adata.X.copy()
     adata.var["mt"] = adata.var_names.str.startswith(mt_prefix)
     sc.pp.calculate_qc_metrics(
         adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
     )
+    adatas[sample_id] = adata
+
+
+################
+# %% Function for computing cutoff values for the qc metrics
+################
+def _compute(sample_id, adata, no_lower=None, no_upper=None):
+    if no_lower is None:
+        no_lower = []
+    if no_upper is None:
+        no_upper = []
     cutoffs = {}
-    cutoffs["sample_id"] = sample_name
+    cutoffs["sample_id"] = sample_id
     cutoffs["adata"] = adata.copy()
     qckeys = ["pct_counts_mt", "n_genes_by_counts", "total_counts"]
     for qckey in qckeys:
@@ -111,26 +152,49 @@ def _compute(o, mt_prefix, cols, figout, no_lower=None, no_upper=None):
     #     panel.next_ax().plot(*d0, linestyle="-", c="r")
     #     panel.current_ax.axvspan(xmin=limits[0], xmax=limits[1], color=cols[4])
     #     panel.current_ax.set_title(qckey, loc="center")
-    # panel.fig.suptitle(sample_name)
-    # panel.fig.savefig(figout.joinpath(f"{sample_name}_qc_kde_diagnostic.png"))
+    # panel.fig.suptitle(sample_id)
+    # panel.fig.savefig(figout.joinpath(f"{sample_id}_qc_kde_diagnostic.png"))
     return cutoffs
 
 
-# %%
-
+# %% Compute cutoffs in parallel and then combine the results into a DataFrame
 fs = list(matrix_dir.iterdir())
-cutoffs_out = Parallel(n_jobs=16)(
-    delayed(_compute)(o, mt_prefix, cols, figout, no_lower=["pct_counts_mt"], no_upper=["n_genes_by_counts", "total_counts"]) for o in fs
-)
 
-# %%
+with joblib_progress("Computing cutoff values...", total=len(adatas)):
+    cutoffs_out = Parallel(n_jobs=32)(
+        # delayed(_compute)( o, mt_prefix, cols, figout, no_lower=["pct_counts_mt"], no_upper=["n_genes_by_counts", "total_counts"],) for o in fs
+        delayed(_compute)(sample_id=sample_id, adata=adata, no_lower=["pct_counts_mt"], no_upper=[]) for sample_id,adata in adatas.items()
+    )
+
 dfdict = {}
 for key in ["sample_id", "adata", "pct_counts_mt", "n_genes_by_counts", "total_counts"]:
     dfdict[key] = [x[key] for x in cutoffs_out]
 
 cutoff_df = pd.DataFrame(dfdict).sort_values("sample_id").set_index("sample_id")
-pd.set_option("display.width", 1000)
 
+# %% Write cutoffs to disk
+importlib.reload(pqc)
+cutoff_names = ["pct_counts_mt", "n_genes_by_counts", "total_counts"]
+cutoff_sheet = pqc.cutoffs_as_sheet(cutoff_df, cutoff_names)
+
+cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/strict.csv", index=False)
+# cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/relaxed.csv", index=False)
+
+# %% Read cutoffs back from disk
+cutoffs = read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/strict.csv")
+# cutoffs = read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/relaxed.csv")
+
+# %%
+importlib.reload(pqc)
+adatas_filt = {}
+cutoffs.columns
+for sample_id,adata in adatas.items():
+    print(sample_id)
+    adata_filt = adata.copy()
+    for c in cutoffs.columns:
+        these_cutoffs = cutoffs.loc[sample_id, c]
+        adata_filt = pqc.apply_cell_cutoff_to_adata(adata_filt, qckey=c, min_value=these_cutoffs[0], max_value=these_cutoffs[1])
+    adatas_filt[sample_id] = adata_filt
 
 ######################################
 # %% Multiplet rate estimates
@@ -140,7 +204,7 @@ pd.set_option("display.width", 1000)
 coculture_meta = pd.read_excel(
     "/home/amsesk/super1/t1d-coculture/CoCulture_metadata.xlsx"
 )
-ncells_est = coculture_meta[coculture_meta["Library_Type"] == "RNA"][
+mult_rate_df = coculture_meta[coculture_meta["Library_Type"] == "RNA"][
     ["Sample_Name", "Cells_in_Sample_Est"]
 ].set_index("Sample_Name")
 
@@ -150,61 +214,18 @@ mult_rate_coef = np.polyfit(
     mult_rates["n_cells_loaded"], mult_rates["multiplet_rate"], deg=2
 )
 mult_rate_p = np.poly1d(mult_rate_coef)
-est_mult_rates = ncells_est.assign(
+est_mult_rates = mult_rate_df.assign(
     est_mult_rate=lambda r: mult_rate_p(r["Cells_in_Sample_Est"])
 )["est_mult_rate"]
-cutoff_df["est_mult_rate"] = est_mult_rates
+mult_rate_df["est_mult_rate"] = est_mult_rates
 
 assert (
-    cutoff_df["est_mult_rate"] == est_mult_rates.loc[cutoff_df["est_mult_rate"].index]
+    mult_rate_df["est_mult_rate"] == est_mult_rates.loc[mult_rate_df["est_mult_rate"].index]
 ).all()
 
-
-# %%
-def apply_cutoffs(row, cutoff_columns):
-    adata_filt = row["adata"]
-    for qckey in cutoff_columns:
-        adata_filt = adata_filt[
-            (adata_filt.obs[qckey] >= row[qckey].loc["limits"][0])
-            & (adata_filt.obs[qckey] <= row[qckey].loc["limits"][1])
-        ].copy()
-        adata_filt.uns[f"cutoffs__{qckey}"] = row[qckey].to_dict()
-        adata_filt.uns[f"cutoffs__{qckey}"]["limits"] = list(adata_filt.uns[f"cutoffs__{qckey}"]["limits"])
-    row["adata_filt"] = adata_filt
-    return row
-
-# %%
-def expertimentName_to_subcategory(en):
-    en_suff = en.split("_", 1)[1]
-    s = re.search("Day[0-9]", en_suff)
-    match s:
-        case None:
-            if en_suff.endswith("CC"):
-                return "CC"
-            else:
-                return pd.NA
-        case _:
-            return s.group(0)
-
-# %%
-def other_preproc(sample_id, adata, est_mult_rate, min_cells, meta2merge):
-    assert len(meta2merge.index) == len(meta2merge.index.unique())
-    sc.pp.filter_genes(adata, min_cells=min_cells)
-    sc.pp.scrublet(adata, expected_doublet_rate=est_mult_rate)
-    adata.obs["original_barcode"] = adata.obs.index.to_list()
-    adata.obs.index = pd.Index([f"{bc}__{sample_id}" for bc in adata.obs.index])
-    adata.obs["sample_id"] = sample_id
-    adata.obs = pd.merge(
-        left=adata.obs,
-        right=meta2merge,
-        how="left",
-        left_on="sample_id",
-        right_index=True,
-    )
-    return adata
-
-
-# %%
+################################
+# %% Convert CoColture metadata sheet to be easily merge-able with adata.obs
+################################
 meta_to_obs = (
     coculture_meta[
         [
@@ -223,7 +244,7 @@ meta_to_obs = (
     .rename(columns={"Sample_Name": "sample_id"})
     .assign(
         Experiment_subcategory=lambda r: r["Experiment_Name"].apply(
-            expertimentName_to_subcategory
+            experimentName_to_subcategory
         )
     )
     .drop(columns=["Library_Type"])
@@ -232,14 +253,59 @@ meta_to_obs = (
 meta_to_obs = meta_to_obs[~meta_to_obs["Experiment_subcategory"].isna()]
 
 # %%
-cutoff_df = cutoff_df.progress_apply(apply_cutoffs, axis=1, args=(["pct_counts_mt", "n_genes_by_counts", "total_counts"],))
+def always_indiv_preproc(adata, est_mult_rate, min_cells):
+    adata = adata.copy()
+    sc.pp.filter_genes(adata, min_cells=min_cells)
+    sc.pp.scrublet(adata, expected_doublet_rate=est_mult_rate)
+    return adata
+
+def other_preproc(adata, meta2merge, batch_key="sample_id"):
+    adata = adata.copy()
+    assert len(meta2merge.index) == len(meta2merge.index.unique())
+    adata.obs = pd.merge(
+        left=adata.obs,
+        right=meta2merge,
+        how="left",
+        left_on="sample_id",
+        right_index=True,
+    )
+    sc.pp.normalize_total(adata)
+    sc.pp.log1p(adata)
+    sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=batch_key)
+    sc.tl.pca(adata)
+    sc.pp.neighbors(adata)
+    sc.tl.umap(adata)
+    sc.tl.leiden(adata, flavor="igraph", n_iterations=2, resolution=1.0, key_added="leiden_1.0")
+    return adata
+
+
+
+####################################
+# %% Preprocess a smaller adata
+####################################
+samp_keys = np.array(list(adatas_filt.keys()))[random.sample(range(0,len(adatas)), 3)]
+samp_keys
+adata_samp = [always_indiv_preproc(ad, mult_rate_df.loc[si, "est_mult_rate"], 3) for si,ad in adatas_filt.items() if si in samp_keys]
+
+test_adata = anndata.concat(adata_samp)
+test_adata.shape
+test_adata.obs.sample_id
 
 # %%
+adata_proc = other_preproc(adata=test_adata,
+                           meta2merge=meta_to_obs,
+                           batch_key="sample_id")
+
+adata_proc
+
+# %%
+adata_proc.write_h5ad("/home/amsesk/super2/h5ad/test_adata_2_filt_proc.h5ad")
+
+# %% Preprocess all adatas
 adata_preproc = Parallel(n_jobs=32, verbose=10)(
     delayed(other_preproc)(sample_id, adata, est_mult_rate, min_cells, meta_to_obs)
     for sample_id, adata, est_mult_rate, min_cells in [
-        (r.Index, r.adata_filt, r.est_mult_rate, 3)
-        for r in cutoff_df.itertuples()
+        (r.Index, r.adata_filt, r.est_mult_rate, 3) for r in cutoff_df.itertuples()
     ]
 )
 
@@ -250,12 +316,18 @@ for adata in adata_preproc:
     assert not any([vn.startswith("Hu.") for vn in adata.var_names])
 
 
-pmbi.anndata.io.write_h5ad_multi({x.obs["sample_id"][0]: x for x in adata_preproc}, suffix="preproc", outdir="/home/amsesk/super2/h5ad/indiv_preproc")
+pmbi.anndata.io.write_h5ad_multi(
+    {x.obs["sample_id"][0]: x for x in adata_preproc},
+    suffix="preproc",
+    outdir="/home/amsesk/super2/h5ad/indiv_preproc",
+)
 combined = anndata.concat(adata_preproc, axis=0, join="outer")
 combined.obs["Experiment_subcategory"].unique()
 
 combined
-adata_cc_day4 = combined[combined.obs["Experiment_subcategory"].isin(["CC", "Day4"])].copy()
+adata_cc_day4 = combined[
+    combined.obs["Experiment_subcategory"].isin(["CC", "Day4"])
+].copy()
 sc.pp.filter_genes(adata_cc_day4, min_cells=3)
 adata_cc_day4.shape
 adata_cc_day4.write_h5ad("/home/amsesk/super2/h5ad/combined_CC_Day4_raw_counts.h5ad")
@@ -270,31 +342,63 @@ adata_day0.write_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
 ###################
 
 # %% Combined multiplet rate scatter
-adata_cc_day4 = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_CC_Day4_raw_counts.h5ad")
+adata_cc_day4 = sc.read_h5ad(
+    "/home/amsesk/super2/h5ad/combined_CC_Day4_raw_counts.h5ad"
+)
 adata_day0 = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
+
 
 # %%
 def observed_multiplet_rate(grp):
-    return len(np.where(grp["predicted_doublet"])[0])/grp.shape[0]
+    return len(np.where(grp["predicted_doublet"])[0]) / grp.shape[0]
 
-cc_day4_mr = pd.DataFrame({"multiplet_rate": adata_cc_day4.obs.groupby("sample_id").apply(observed_multiplet_rate)})
+
+cc_day4_mr = pd.DataFrame(
+    {
+        "multiplet_rate": adata_cc_day4.obs.groupby("sample_id").apply(
+            observed_multiplet_rate
+        )
+    }
+)
 cc_day4_mr["object"] = "CC_Day4"
-day0_mr = pd.DataFrame({"multiplet_rate": adata_day0.obs.groupby("sample_id").apply(observed_multiplet_rate)})
+day0_mr = pd.DataFrame(
+    {
+        "multiplet_rate": adata_day0.obs.groupby("sample_id").apply(
+            observed_multiplet_rate
+        )
+    }
+)
 day0_mr["object"] = "Day0"
 combmr = pd.concat([cc_day4_mr, day0_mr], axis=0)
-combmr = pd.merge(left=combmr, right=coculture_meta[coculture_meta["Library_Type"]=="RNA"].set_index("Sample_Name")["Cells_in_Sample_Est"], how="left", left_index=True, right_index=True)
-cc_day4_mr = combmr[combmr["object"]=="CC_Day4"]
-day0_mr = combmr[combmr["object"]=="Day0"]
+combmr = pd.merge(
+    left=combmr,
+    right=coculture_meta[coculture_meta["Library_Type"] == "RNA"].set_index(
+        "Sample_Name"
+    )["Cells_in_Sample_Est"],
+    how="left",
+    left_index=True,
+    right_index=True,
+)
+cc_day4_mr = combmr[combmr["object"] == "CC_Day4"]
+day0_mr = combmr[combmr["object"] == "Day0"]
 cc_day4_mr
 # %%
-panel = pmbip.Paneler(nrow=1, ncol=1, figsize=(4,4))
-panel.next_ax().scatter(cc_day4_mr["Cells_in_Sample_Est"], cc_day4_mr["multiplet_rate"], marker=".", s=5, c="blue")
-panel.current_ax.scatter(day0_mr["Cells_in_Sample_Est"], day0_mr["multiplet_rate"], marker=".", s=5, c="red")
+panel = pmbip.Paneler(nrow=1, ncol=1, figsize=(4, 4))
+panel.next_ax().scatter(
+    cc_day4_mr["Cells_in_Sample_Est"],
+    cc_day4_mr["multiplet_rate"],
+    marker=".",
+    s=5,
+    c="blue",
+)
+panel.current_ax.scatter(
+    day0_mr["Cells_in_Sample_Est"], day0_mr["multiplet_rate"], marker=".", s=5, c="red"
+)
 panel.fig.savefig("/home/amsesk/figures/coculture/scrub_multiplet_rate.pdf")
 
 # %% Just making a subset for working with on macbook air
 test_adata = sc.read_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts.h5ad")
-coculture_meta[coculture_meta["Cells_in_Sample_Est"]==0]
+coculture_meta[coculture_meta["Cells_in_Sample_Est"] == 0]
 
 # %%
 
@@ -302,10 +406,11 @@ sc.pp.normalize_total(test_adata)
 sc.pp.log1p(test_adata)
 sc.pp.highly_variable_genes(test_adata, n_top_genes=500, batch_key="sample_id")
 
+
 # %%
 def random_subset_adata(adata, n_cells, n_genes, from_most_variable=True):
     cells_total, genes_total = adata.shape
-    cell_samp = np.random.randint(0, cells_total-1, size=(n_cells,))
+    cell_samp = np.random.randint(0, cells_total - 1, size=(n_cells,))
     if from_most_variable:
         var_genes_idx = np.where(test_adata.var["highly_variable"])[0]
         if n_genes > len(var_genes_idx):
@@ -314,10 +419,13 @@ def random_subset_adata(adata, n_cells, n_genes, from_most_variable=True):
         else:
             gene_samp = var_genes_idx[np.random.randint(0, n_genes, size=(n_genes,))]
     else:
-        gene_samp = np.random.randint(0, genes_total-1, size=(n_genes,))
+        gene_samp = np.random.randint(0, genes_total - 1, size=(n_genes,))
     return adata[cell_samp, gene_samp]
 
-random_subset_adata(test_adata, 50000, 500).write_h5ad("/home/amsesk/super2/h5ad/combined_Day0_raw_counts_50000x500_SUB.h5ad")
+
+random_subset_adata(test_adata, 50000, 500).write_h5ad(
+    "/home/amsesk/super2/h5ad/combined_Day0_raw_counts_50000x500_SUB.h5ad"
+)
 
 
 # %%
