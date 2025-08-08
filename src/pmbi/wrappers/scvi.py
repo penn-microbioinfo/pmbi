@@ -104,9 +104,9 @@ class ScviModeler(Modeler):
         super().__init__(datafile, batch_key)
         self.type_ = scvi.model.SCVI
 
-    def setup_data(self, layer=None):
+    def setup_data(self, layer=None, **kwargs):
         if isinstance(self.data, anndata.AnnData):
-            self.type_.setup_anndata(self.data, batch_key=self.batch_key, layer=layer)
+            self.type_.setup_anndata(self.data, batch_key=self.batch_key, layer=layer, **kwargs)
 
     def get_latent_repr(self, n_latent: int, as_obsm=True):
         obsm_key = f"X_scvi_n_latent_{n_latent}"
