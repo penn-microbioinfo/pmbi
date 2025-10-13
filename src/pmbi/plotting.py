@@ -13,6 +13,7 @@ import palettable
 import pandas as pd
 
 
+x = "#ffffff"
 def _check_output_prefix(inner):
     @wraps(inner)
     def wrapper(self, *args, **kwargs):
@@ -290,3 +291,8 @@ def heatmap(
     ax.set_yticks(range(0, nrow))
     ax.set_yticklabels(matrix.index, fontsize=theme.ticklabels.fontsize)
     return im
+
+# %%
+def scatter(x, y, ax, **kwargs):
+    ax.scatter(x=x, y=y, **kwargs)
+    return ax

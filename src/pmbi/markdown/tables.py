@@ -33,7 +33,7 @@ class MultiSlideTable(object):
             # out+="```{python}\n"
             out+="\\fontsize{7}{7}\\selectfont\n"
             # out+="```{=html}\n"
-            table_chunk=self.table.iloc[start:stop,:][["SampleID", "slide_number", "roi", "treatment", "patient"]]
+            table_chunk=self.table.iloc[start:stop,:]
             out+=f"{table_chunk.to_markdown(index=False)}\n\n"  
             # out+=(f'table_md="""\n{table_chunk.to_markdown()}\n"""\n\n')
             # out+="display(Markdown(table_md))\n\n"

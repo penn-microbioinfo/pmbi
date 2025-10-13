@@ -129,7 +129,8 @@ def cluster_leiden(adata, resolutions, **kwargs):
 
 
 # implementation of sc.pp.normalize_geometric(adt) from https://github.com/scverse/scanpy/pull/1117
-def clr_normalize(adata=anndata.AnnData):
+def clr_normalize(adata: anndata.AnnData) -> anndata.AnnData:
+    adata = adata.copy()
     counts_nda = adata.X.toarray()
     adata.X = scipy.sparse.csr_matrix(
         np.divide(counts_nda, scipy.stats.mstats.gmean(counts_nda + 1, axis=0))

@@ -1,8 +1,8 @@
 import argparse
 import functools
 import importlib
-import re
 import random
+import re
 from os import PathLike
 from pathlib import Path
 
@@ -16,13 +16,14 @@ import toolz
 from joblib import Parallel, delayed
 from joblib_progress import joblib_progress
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import pmbi.anndata.io
 import pmbi.plotting as pmbip
-import pmbi.wrappers.scanpy as scp
-from pmbi.cellranger.globals import ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
 import pmbi.scanpy.qc.cutoffs as pqc
-
+import pmbi.wrappers.scanpy as scp
+from pmbi.cellranger.globals import \
+    ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
 
 importlib.reload(scp)
 
@@ -52,26 +53,26 @@ def experimentName_to_subcategory(en):
 #################
 # %% ArgumentParser
 #################
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "-m",
-    "--matrix",
-    required=True,
-    action="store",
-    help="Path to 10X filtered_feature_bc_matrix.h5",
-)
-parser.add_argument(
-    "-s",
-    "--suffix",
-    required=True,
-    action="store",
-    help="Samlple suffix to name output files and plots.",
-)
-parser.add_argument(
-    "-o", "--figout", default=".", action="store", help="Directory to output figures."
-)
-# parser.add_argument("-", "--", required = True, action = "store", help = "")
-args = parser.parse_args()
+# parser = argparse.ArgumentParser()
+# parser.add_argument(
+#     "-m",
+#     "--matrix",
+#     required=True,
+#     action="store",
+#     help="Path to 10X filtered_feature_bc_matrix.h5",
+# )
+# parser.add_argument(
+#     "-s",
+#     "--suffix",
+#     required=True,
+#     action="store",
+#     help="Samlple suffix to name output files and plots.",
+# )
+# parser.add_argument(
+#     "-o", "--figout", default=".", action="store", help="Directory to output figures."
+# )
+# # parser.add_argument("-", "--", required = True, action = "store", help = "")
+# args = parser.parse_args()
 
 
 # matrix_dir = Path("/home/amsesk/super2/cellranger/HPAP-135_CC_1__outs/per_sample_outs/HPAP-135_CC_1/count/sample_filtered_feature_bc_matrix.h5")
@@ -81,6 +82,38 @@ figout = Path("/home/amsesk/figures/coculture/qc_kde_figures/png")
 matrix_dir = Path("/home/amsesk/super2/cellranger/")
 mt_prefix = "MT-"
 cols = (palettable.cartocolors.qualitative.Pastel_10.mpl_colors) * 10
+
+################################
+# %% Read in CoCulture metadata and convert to be easily merge-able with adata.obs
+################################
+coculture_meta = pd.read_excel(
+    "/home/amsesk/super1/t1d-coculture/CoCulture_metadata.xlsx"
+)
+meta_to_obs = (
+    coculture_meta[
+        [
+            "Experiment_Name",
+            "Sample_Name",
+            "DonorID",
+            "Tissue",
+            "Disease_Status",
+            "Sequencing_Run",
+            "Sex",
+            "Age",
+            "Library_Type",
+        ]
+    ]
+    .query("Library_Type == 'RNA'")
+    .rename(columns={"Sample_Name": "sample_id"})
+    .assign(
+        Experiment_subcategory=lambda r: r["Experiment_Name"].apply(
+            experimentName_to_subcategory
+        )
+    )
+    .drop(columns=["Library_Type"])
+    .set_index("sample_id")
+)
+meta_to_obs = meta_to_obs[~meta_to_obs["Experiment_subcategory"].isna()]
 
 ################
 # %% Read in adatas and do a little prepocessing, calculate qc metrics, etc
@@ -102,8 +135,35 @@ for o in fs:
     sc.pp.calculate_qc_metrics(
         adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
     )
+    adata.obs = pd.merge(left=adata.obs,
+            right=pd.DataFrame(meta_to_obs["Experiment_subcategory"]),
+            how="left",
+            left_on="sample_id",
+            right_index=True)
     adatas[sample_id] = adata
 
+################
+# %% QC scatter plots 
+################
+
+def _qc_scatter(sample_id, adata):
+    panel = pmbip.Paneler(1,1,(3,3))
+    mappable = panel.next_ax().scatter(x=adata.obs["total_counts"], 
+                                       y=adata.obs["n_genes_by_counts"],
+                                       c=adata.obs["pct_counts_mt"],
+                                       cmap=palettable.scientific.diverging.Roma_20_r.mpl_colormap,
+                                       s=1,
+                                       )
+    panel.current_ax.set_title(sample_id)
+    panel.current_ax.set_xlabel("Total counts")
+    panel.current_ax.set_ylabel("Unique features")
+    panel.current_ax.set_xticklabels(labels=panel.current_ax.get_xticklabels(), fontsize=4, rotation=90)
+    panel.current_ax.set_yticklabels(labels=panel.current_ax.get_yticklabels(), fontsize=4)
+    panel.fig.colorbar(mappable=mappable, ax=panel.current_ax, shrink=0.5, label="pMito")
+    panel.fig.savefig(f"/home/amsesk/figures/coculture/qc_scatters/{sample_id}.png")
+
+for sample_id,adata in adatas.items():
+    _qc_scatter(sample_id, adata)
 
 ################
 # %% Function for computing cutoff values for the qc metrics
@@ -158,12 +218,10 @@ def _compute(sample_id, adata, no_lower=None, no_upper=None):
 
 
 # %% Compute cutoffs in parallel and then combine the results into a DataFrame
-fs = list(matrix_dir.iterdir())
-
 with joblib_progress("Computing cutoff values...", total=len(adatas)):
     cutoffs_out = Parallel(n_jobs=32)(
-        # delayed(_compute)( o, mt_prefix, cols, figout, no_lower=["pct_counts_mt"], no_upper=["n_genes_by_counts", "total_counts"],) for o in fs
-        delayed(_compute)(sample_id=sample_id, adata=adata, no_lower=["pct_counts_mt"], no_upper=[]) for sample_id,adata in adatas.items()
+        delayed(_compute)(sample_id=si, adata=ad, no_lower=["pct_counts_mt"], no_upper=["n_genes_by_counts", "total_counts"],) for si,ad in adatas.items()
+        # delayed(_compute)(sample_id=sample_id, adata=adata, no_lower=["pct_counts_mt"], no_upper=[]) for sample_id,adata in adatas.items()
     )
 
 dfdict = {}
@@ -177,12 +235,12 @@ importlib.reload(pqc)
 cutoff_names = ["pct_counts_mt", "n_genes_by_counts", "total_counts"]
 cutoff_sheet = pqc.cutoffs_as_sheet(cutoff_df, cutoff_names)
 
-cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/strict.csv", index=False)
-# cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/relaxed.csv", index=False)
+# cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/strict.csv", index=False)
+cutoff_sheet.to_csv("/home/amsesk/super2/qc_cutoffs/relaxed.csv", index=False)
 
 # %% Read cutoffs back from disk
-cutoffs = read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/strict.csv")
-# cutoffs = read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/relaxed.csv")
+# cutoffs = pqc.read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/strict.csv")
+cutoffs = pqc.read_cutoff_sheet(path="/home/amsesk/super2/qc_cutoffs/relaxed.csv")
 
 # %%
 importlib.reload(pqc)
@@ -194,21 +252,17 @@ for sample_id,adata in adatas.items():
     for c in cutoffs.columns:
         these_cutoffs = cutoffs.loc[sample_id, c]
         adata_filt = pqc.apply_cell_cutoff_to_adata(adata_filt, qckey=c, min_value=these_cutoffs[0], max_value=these_cutoffs[1])
+        print(adata_filt.shape)
     adatas_filt[sample_id] = adata_filt
 
 ######################################
 # %% Multiplet rate estimates
 ######################################
-
-# %% Get sample metadata for giving scruble estimated multiplet rates
-coculture_meta = pd.read_excel(
-    "/home/amsesk/super1/t1d-coculture/CoCulture_metadata.xlsx"
-)
 mult_rate_df = coculture_meta[coculture_meta["Library_Type"] == "RNA"][
     ["Sample_Name", "Cells_in_Sample_Est"]
 ].set_index("Sample_Name")
 
-# %% Estimate multiplet rates based on 2-degree polynomial fit to 10X stated rates
+# Estimate multiplet rates based on 2-degree polynomial fit to 10X stated rates
 mult_rates = ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
 mult_rate_coef = np.polyfit(
     mult_rates["n_cells_loaded"], mult_rates["multiplet_rate"], deg=2
@@ -223,44 +277,19 @@ assert (
     mult_rate_df["est_mult_rate"] == est_mult_rates.loc[mult_rate_df["est_mult_rate"].index]
 ).all()
 
-################################
-# %% Convert CoColture metadata sheet to be easily merge-able with adata.obs
-################################
-meta_to_obs = (
-    coculture_meta[
-        [
-            "Experiment_Name",
-            "Sample_Name",
-            "DonorID",
-            "Tissue",
-            "Disease_Status",
-            "Sequencing_Run",
-            "Sex",
-            "Age",
-            "Library_Type",
-        ]
-    ]
-    .query("Library_Type == 'RNA'")
-    .rename(columns={"Sample_Name": "sample_id"})
-    .assign(
-        Experiment_subcategory=lambda r: r["Experiment_Name"].apply(
-            experimentName_to_subcategory
-        )
-    )
-    .drop(columns=["Library_Type"])
-    .set_index("sample_id")
-)
-meta_to_obs = meta_to_obs[~meta_to_obs["Experiment_subcategory"].isna()]
 
 # %%
-def always_indiv_preproc(adata, est_mult_rate, min_cells):
+def always_indiv_preproc(sample_id, adata, est_mult_rate):
     adata = adata.copy()
-    sc.pp.filter_genes(adata, min_cells=min_cells)
     sc.pp.scrublet(adata, expected_doublet_rate=est_mult_rate)
-    return adata
+    return (sample_id, adata)
 
-def other_preproc(adata, meta2merge, batch_key="sample_id"):
+def other_preproc(adata, 
+                  #min_cells, 
+                  meta2merge, 
+                  batch_key="sample_id"):
     adata = adata.copy()
+    # sc.pp.filter_genes(adata, min_cells=min_cells)
     assert len(meta2merge.index) == len(meta2merge.index.unique())
     adata.obs = pd.merge(
         left=adata.obs,
@@ -271,43 +300,70 @@ def other_preproc(adata, meta2merge, batch_key="sample_id"):
     )
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=batch_key)
-    sc.tl.pca(adata)
-    sc.pp.neighbors(adata)
-    sc.tl.umap(adata)
-    sc.tl.leiden(adata, flavor="igraph", n_iterations=2, resolution=1.0, key_added="leiden_1.0")
+    # sc.pp.highly_variable_genes(adata, n_top_genes=3000, batch_key=batch_key)
+    # adata.layers["scale_data"] = sc.pp.scale(adata, max_value=10, copy=True).X
+    # sc.tl.pca(adata)
+    # sc.pp.neighbors(adata, use_rep="X_pca", key_added = "X_pca_neighbors")
+    # sc.tl.leiden(adata, flavor="igraph", n_iterations=2, resolution=1.0, key_added="X_pca_neighbors_leiden_1.0", neighbors_key="X_pca_neighbors")
     return adata
 
-
-
 ####################################
-# %% Preprocess a smaller adata
+# %% Do preprocessing steps that should be done invididually before concating
 ####################################
-samp_keys = np.array(list(adatas_filt.keys()))[random.sample(range(0,len(adatas)), 3)]
-samp_keys
-adata_samp = [always_indiv_preproc(ad, mult_rate_df.loc[si, "est_mult_rate"], 3) for si,ad in adatas_filt.items() if si in samp_keys]
+with joblib_progress("Doing individual anndata preprocessing...", total=len(adatas_filt)):
+    adatas_filt_preproc = Parallel(n_jobs=32)(
+        # delayed(_compute)( o, mt_prefix, cols, figout, no_lower=["pct_counts_mt"], no_upper=["n_genes_by_counts", "total_counts"],) for o in fs
+        delayed(always_indiv_preproc)(sample_id=sample_id, adata=adata, est_mult_rate=mult_rate_df.loc[sample_id, "est_mult_rate"]) for sample_id,adata in adatas_filt.items()
+    )
+    adatas_filt_preproc = {si:ad for si,ad in adatas_filt_preproc}
 
-test_adata = anndata.concat(adata_samp)
-test_adata.shape
-test_adata.obs.sample_id
-
-# %%
-adata_proc = other_preproc(adata=test_adata,
-                           meta2merge=meta_to_obs,
-                           batch_key="sample_id")
-
-adata_proc
-
-# %%
-adata_proc.write_h5ad("/home/amsesk/super2/h5ad/test_adata_2_filt_proc.h5ad")
-
-# %% Preprocess all adatas
-adata_preproc = Parallel(n_jobs=32, verbose=10)(
-    delayed(other_preproc)(sample_id, adata, est_mult_rate, min_cells, meta_to_obs)
-    for sample_id, adata, est_mult_rate, min_cells in [
-        (r.Index, r.adata_filt, r.est_mult_rate, 3) for r in cutoff_df.itertuples()
-    ]
+# %% Save individual anndatas
+pmbi.anndata.io.write_h5ad_multi(
+    adatas_filt_preproc,
+    suffix="filt_preproc",
+    outdir="/home/amsesk/super2/h5ad/indiv_preproc/relaxedQc",
 )
+adatas["HPAP-135_CC_2"].obs.columns
+#####################
+# %% Split up the AnnData's into different combined objects for integration
+#####################
+CC_Day4_samps = meta_to_obs[meta_to_obs["Experiment_subcategory"].isin(["CC", "Day4"])].index.to_list()
+Day0_samps = meta_to_obs[meta_to_obs["Experiment_subcategory"].isin(["Day0"])].index.to_list()
+
+CC_Day4_adatas_filt_preproc = {si:ad for si,ad in adatas_filt_preproc.items() if si in CC_Day4_samps}
+Day0_adatas_filt_preproc = {si:ad for si,ad in adatas_filt_preproc.items() if si in Day0_samps}
+
+# %% Split and process all
+CC_Day4_concat = anndata.concat(CC_Day4_adatas_filt_preproc.values())
+Day0_concat = anndata.concat(Day0_adatas_filt_preproc.values())
+
+# %%
+meta_to_obs.columns
+CC_Day4_concat_proc = other_preproc(CC_Day4_concat, meta_to_obs.drop(columns=["Experiment_subcategory"]), batch_key="sample_id")
+Day0_concat_proc = other_preproc(Day0_concat, meta_to_obs.drop(columns=["Experiment_subcategory"]), batch_key="sample_id")
+CC_Day4_concat_proc.obs.columns
+
+# %%
+CC_Day4_concat_proc.write_h5ad("/home/amsesk/super2/h5ad/CC_Day4_relaxedQc.h5ad")
+Day0_concat_proc.write_h5ad("/home/amsesk/super2/h5ad/Day0_relaxedQc.h5ad")
+
+# %% Check occupancy of genes on gene list
+rna_gene_list = pd.read_excel("/home/amsesk/super2/gene_lists/umap_annotation_genes.xlsx", sheet_name="Gene")
+rna_gene_list["Gene"].isin(CC_Day4_concat_proc.var_names).all()
+rna_gene_list["Gene"].isin(Day0_concat_proc.var_names).all()
+
+rna_gene_list["Gene"].isin(sc.pp.filter_genes(CC_Day4_concat_proc, min_cells=3, inplace=False).var_names).all()
+np.where(rna_gene_list["Gene"].isin(CC_Day4_concat_proc[:,sc.pp.filter_genes(CC_Day4_concat_proc, min_cells=3, inplace=False)[0]].var_names))[0].shape
+np.where(rna_gene_list["Gene"].isin(Day0_concat_proc[:,sc.pp.filter_genes(Day0_concat_proc, min_cells=3, inplace=False)[0]].var_names))[0].shape
+
+# %% Combined adatas with gene filter
+# CC_Day4_concat_proc_geneFilt = CC_Day4_concat_proc[:,sc.pp.filter_genes(CC_Day4_concat_proc, min_cells=3, inplace=False)[0]]
+# Day0_concat_proc_geneFilt = Day0_concat_proc[:,sc.pp.filter_genes(Day0_concat_proc, min_cells=3, inplace=False)[0]]
+#
+# CC_Day4_concat_proc_geneFilt.write_h5ad("/home/amsesk/super2/h5ad/CC_Day4_relaxedQc_geneFilt.h5ad")
+# Day0_concat_proc_geneFilt.write_h5ad("/home/amsesk/super2/h5ad/Day0_relaxedQc_geneFilt.h5ad")
+
+
 
 ######################################
 # %% Concatenate filtered AnnDatas and output for integration
