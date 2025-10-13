@@ -4,13 +4,30 @@ import pandas as pd
 import numpy as np
 from pmbi.plotting import Paneler
 import matplotlib.pyplot as plt
+import os
+from pathlib import Path
+import argparse
 
-chr_sizes = pd.read_csv("/storage/anat/genome_ref/GCA_037367395.2_aLitPip1_p1.2_genomic.fna.fai", sep="\t", header=None).iloc[:,0:2]
+parser = argparse.ArgumentParser()
+parser.add_argument("-r", "--reference", help="Path to genome reference, requires .fai index")
+parser.add_argument("-d", "--depth", help="Path to `samtools depth` output file.")
+parser.add_argument("-o", "--output_prefix", help="Path to `samtools depth` output file.")
+args = parser.parse_args()
+
+def get_ref_index(refpath: str):
+    idxpath = Path(f"{refpath}.fai")
+    if not os.path.isfile(idxpath):
+        raise ValueError(f"Unable to locate reference fai index: {idxpath}")
+    else:
+        return idxpath
+
+
+chr_sizes = pd.read_csv(get_ref_index(args.reference), sep="\t", header=None).iloc[:,0:2]
 chr_sizes.columns=["chr","size"]
 chr_sizes=chr_sizes.set_index("chr")
 
 
-dep = pd.read_csv("/storage/anat/sam/AES103_Pip1.sorted.bam.depth", sep="\t", header=None)
+dep = pd.read_csv(args.depth, sep="\t", header=None, compression="gzip")
 dep.columns = ["chr", "pos", "depth"]
 
 # %%
@@ -27,7 +44,9 @@ for this_chr in dep["chr"].unique():
     D_arr = D.toarray()
     panel = Paneler(1,1,(8,8))
     panel.next_ax().scatter(sub["pos"].values, sub["depth"].values, s=0.75, marker=".", edgecolors="none")
-    panel.fig.savefig(f"/storage/anat/figures/AES103_Pip1_depth/AES103_Pip1_depth_{this_chr}.png", dpi=1500)
+    panel.fig.savefig(f"{args.output_prefix}/AES103_Pip1_depth_{this_chr}.png", dpi=1500)
+
+sys.exit()
 
 # %%
 r = np.array([200e6, 250e6]).astype(np.int64)
