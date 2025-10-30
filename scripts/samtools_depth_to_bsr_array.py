@@ -6,6 +6,7 @@ from pathlib import Path
 import pmbi.plotting as pmbip
 import importlib
 import matplotlib.pyplot as plt
+<<<<<<< HEAD
 from os import PathLike
 from typing import Iterable
 import pysam
@@ -134,6 +135,51 @@ D_arr = D.to_array()
 panel = Paneler(1,1,(8,8))
 panel.next_ax().scatter(sub["pos"].values, sub["depth"].values, s=0.75, marker=".", edgecolors="none")
 panel.fig.savefig(FIGS.joinpath(f"AES103_Pip1_depth/AES103_Pip1_depth_{this_chr}.png"), dpi=1500)
+=======
+import os
+from pathlib import Path
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-r", "--reference", help="Path to genome reference, requires .fai index")
+parser.add_argument("-d", "--depth", help="Path to `samtools depth` output file.")
+parser.add_argument("-o", "--output_prefix", help="Path to `samtools depth` output file.")
+args = parser.parse_args()
+
+def get_ref_index(refpath: str):
+    idxpath = Path(f"{refpath}.fai")
+    if not os.path.isfile(idxpath):
+        raise ValueError(f"Unable to locate reference fai index: {idxpath}")
+    else:
+        return idxpath
+
+
+chr_sizes = pd.read_csv(get_ref_index(args.reference), sep="\t", header=None).iloc[:,0:2]
+chr_sizes.columns=["chr","size"]
+chr_sizes=chr_sizes.set_index("chr")
+
+
+dep = pd.read_csv(args.depth, sep="\t", header=None, compression="gzip")
+dep.columns = ["chr", "pos", "depth"]
+
+# %%
+for this_chr in dep["chr"].unique():
+    print(this_chr)
+    plt.close("all")
+    plt.clf()
+    this_chr_size = chr_sizes.loc[this_chr,"size"]
+    sub = dep[dep["chr"]==this_chr]
+    depth_arr = sub["depth"].to_numpy()
+    cols_arr = np.full(len(sub["pos"]), 0)
+    pos_arr = sub["pos"].to_numpy()
+    D = sparse.coo_array((depth_arr, (pos_arr, cols_arr)), shape=(this_chr_size,1))
+    D_arr = D.toarray()
+    panel = Paneler(1,1,(8,8))
+    panel.next_ax().scatter(sub["pos"].values, sub["depth"].values, s=0.75, marker=".", edgecolors="none")
+    panel.fig.savefig(f"{args.output_prefix}/AES103_Pip1_depth_{this_chr}.png", dpi=1500)
+
+sys.exit()
+>>>>>>> 79d171b51404574b403e6182d3e6eb471cdf2eda
 
 # %%
 r = np.array([200e6, 250e6]).astype(np.int64)
