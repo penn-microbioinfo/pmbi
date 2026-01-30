@@ -20,11 +20,15 @@ authors = [
     { name = "amsesk", email =" amsesk@umich.edu" }
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+# requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "mudata>=0.2.3",
     "scipy>=1.13.0",
-    "squidpy>=1.6.1",
+    "squidpy@git+https://github.com/scverse/squidpy.git",
+    "pyarrow==21.0.0",
+    "spatialdata",
+    "spatialdata_io",
     "seaborn>=0.13.2",
     "ipython>=8.24.0",
     "scanpy>=1.10.1",
