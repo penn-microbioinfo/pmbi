@@ -1,9 +1,10 @@
 from munch import Munch
+from os import PathLike
 import pandas as pd
 import tomllib
 
 # %%
-def import_config(path: str) -> Munch:
+def import_config(path: PathLike) -> Munch:
     with open(path, "rb") as c:
         config = Munch.fromDict(tomllib.load(c))
     return config

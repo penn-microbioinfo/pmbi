@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import h5py
 import os
@@ -16,6 +17,33 @@ from scirpy.io._datastructures import AirrCell
 import pmbi.anndata.get
 from pmbi.airr.schema import calls_to_imgt_locus_names, get_airr_schema
 from pmbi.io import get_key_default
+
+# %%
+class AnnDataParts:
+    def __init__(self, mtx=None, obs=None, var=None):
+        self.mtx = mtx
+        self.obs = obs
+        self.var = var
+
+    @staticmethod
+    def from_mtx(mtx_path: os.PathLike , obs_names_path: os.PathLike, var_names_path: os.PathLike) -> AnnDataParts:
+        mtx = scipy.io.mmread(mtx_path).tocsr()
+        obs = pd.DataFrame(
+            index=pd.read_csv(
+                obs_names_path,
+                header=None,
+            ).iloc[:, 0])
+        var = pd.DataFrame(
+            index=pd.read_csv(
+                var_names_path,
+                header=None,
+            ).iloc[:, 0])
+        return AnnDataParts(mtx, obs, var)
+
+# %%
+def read_mtx(mtx_path: os.PathLike , obs_names_path: os.PathLike, var_names_path: os.PathLike) -> anndata.AnnData:
+    parts = AnnDataParts.from_mtx(mtx_path, obs_names_path, var_names_path)
+    return anndata.AnnData(X=parts.mtx, obs=parts.obs, var=parts.var)
 
 
 def write_mtx(
@@ -113,7 +141,6 @@ def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
             return anndata.read_h5ad(str(path), **kwargs)
         else:
             raise ValueError(f"Unsupported filetype: {path.suffix}")
-
 
 def read_matrix_multi(
     paths: list[Path], getkey=get_key_default

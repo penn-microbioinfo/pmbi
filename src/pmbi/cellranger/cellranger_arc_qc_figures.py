@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 import matplotlib.axes
 import mudata
@@ -14,14 +14,11 @@ from pmbi.wrappers.scanpy import calc_umi_per_bc
 
 
 # %%
-def tss_enrichment_plot(
+def tss_enrichment(
     mdata: mudata.MuData,
-    ax: matplotlib.axes.Axes,
     n_tss: int = 2000,
     extend_upstream: int = 1000,
     extend_downstream: int = 1000,
-    color="red",
-    fill_alpha=0.2,
 ):
     fragments = pysam.TabixFile(
         mdata["atac"].uns["files"]["fragments"], parser=pysam.asBed()
@@ -38,7 +35,30 @@ def tss_enrichment_plot(
         except ValueError:
             pass
     feats_filt = feats_filt.loc[feats_with_window, :]
-    tsse = atac.tl.tss_enrichment(mdata, features=feats_filt, n_tss=n_tss)
+    return atac.tl.tss_enrichment(
+        mdata,
+        features=feats_filt,
+        n_tss=n_tss,
+        extend_upstream=extend_upstream,
+        extend_downstream=extend_downstream,
+    )
+
+
+def tss_enrichment_plot(
+    mdata: mudata.MuData,
+    ax: matplotlib.axes.Axes,
+    n_tss: int = 2000,
+    extend_upstream: int = 1000,
+    extend_downstream: int = 1000,
+    color="red",
+    fill_alpha=0.2,
+):
+    tsse = tss_enrichment(
+        mdata=mdata,
+        n_tss=n_tss,
+        extend_upstream=extend_upstream,
+        extend_downstream=extend_downstream,
+    )
     x = tsse.var["TSS_position"]
     means = tsse.X.mean(axis=0)
     ax.plot(x, means, linewidth=1, color=color)
@@ -47,6 +67,35 @@ def tss_enrichment_plot(
     ax.set_xlabel("Position relative to TSS")
     ax.set_ylabel("Enrichment")
     ax.set_title("TSS Enrichment")
+
+
+# %%
+def fragment_size_distr(
+    mdata: mudata.MuData,
+    genome: snapatac2.genome.Genome,
+    sample_size: int = 50000,
+    region_str: Optional[str] = None,
+    fragments: Optional[pd.DataFrame] = None,
+    modal_key: str = "atac",
+    kde_bandwidth: float = 1.0,
+) -> KernelDensity:
+    if fragments is None:
+        if region_str is None:
+            chrom_sizes = pd.Series(genome.chrom_sizes).sort_values(ascending=False)
+            largest_chrom = chrom_sizes.index[0]
+            region_str = f"{largest_chrom}:1-{chrom_sizes.loc[largest_chrom]}"
+        frags = atac.tl.fetch_regions_to_df(
+            fragment_path=mdata[modal_key].uns["files"]["fragments"],
+            features=region_str,
+        )
+    else:
+        frags = fragments
+    frags["fragment_size"] = frags["End"] - frags["Start"]
+    sidx = np.random.choice(
+        np.arange(0, frags.shape[0]), size=sample_size, replace=False
+    )
+    fs = frags["fragment_size"].to_numpy()[sidx, np.newaxis]
+    return KernelDensity(kernel="gaussian", bandwidth=kde_bandwidth).fit(fs)
 
 
 # %%
@@ -62,20 +111,15 @@ def fragment_size_distr_plot(
     xlabel: str = "fragment size (bp)",
     ylabel: str = "density",
     **kwargs,
-):
-    if region_str is None:
-        chrom_sizes = pd.Series(genome.chrom_sizes).sort_values(ascending=False)
-        largest_chrom = chrom_sizes.index[0]
-        region_str = f"{largest_chrom}:1-{chrom_sizes.loc[largest_chrom]}"
-    frags = atac.tl.fetch_regions_to_df(
-        fragment_path=mdata[modal_key].uns["files"]["fragments"], features=region_str
+) -> None:
+    kde = fragment_size_distr(
+        mdata=mdata,
+        genome=genome,
+        sample_size=sample_size,
+        region_str=region_str,
+        modal_key=modal_key,
+        kde_bandwidth=kde_bandwidth,
     )
-    frags["fragment_size"] = frags["End"] - frags["Start"]
-    sidx = np.random.choice(
-        np.arange(0, frags.shape[0]), size=sample_size, replace=False
-    )
-    fs = frags["fragment_size"].to_numpy()[sidx, np.newaxis]
-    kde = KernelDensity(kernel="gaussian", bandwidth=kde_bandwidth).fit(fs)
     x_plot = np.arange(0, xmax)[:, np.newaxis]
     y_plot = kde.score_samples(x_plot)
     ax.plot(x_plot[:, 0], np.exp(y_plot), **kwargs)

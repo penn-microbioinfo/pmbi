@@ -7,6 +7,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 import pmbi.cellranger.cellranger_command as crc
+from pmbi.cellranger.runners import CellrangerArcRunner
 from pmbi.config import import_config
 from pmbi.file_handlers import LocalBackend
 from pmbi.logging import streamLogger
@@ -36,7 +37,7 @@ if __name__ == "__main__":
 
 # %% Log some validating stats 
     logger.info(f"Unique samples: {h.samples().shape[0]}")
-    logger.info(f"CellrangerCollection table dimensions: {h.table.shape}")
+   logger.info(f"CellrangerCollection table dimensions: {h.table.shape}")
     n_modals = h.modalities_per_sample()
     if n_modals.value_counts().shape[0] == 1:
         logger.info(f"All {h.samples().shape[0]} samples are represented by {n_modals.value_counts().index[0]} modalities: ")
@@ -49,7 +50,7 @@ if __name__ == "__main__":
 # %%
     if not args.dry:
         def _run(unit, wd, **kwargs):
-            unit.create_runner(wd, **kwargs).run()
+            CellrangerArcRunner(unit,w d, **kwargs).run()
 
         _out = Parallel(n_jobs=args.run.n_jobs)(delayed(_run)(unit,
                                                 wd=Path(output_dir),

@@ -51,3 +51,5 @@ def read_gct(gctpath: os.PathLike) -> pd.DataFrame:
         df = df.astype(np.float64)
 
         return df
+# %%
+

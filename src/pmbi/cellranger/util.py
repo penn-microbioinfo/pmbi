@@ -1,6 +1,6 @@
 import pandas as pd
 
-# %% CHUNK: This function tries to pull an accepted modality from a an input string based on an input pattern {{{
+# %% FUNC: This function tries to pull an accepted modality from a an input string based on an input pattern {{{
 def get_modality_from_string(
     string: str,
     pattern: str,
@@ -13,10 +13,8 @@ def get_modality_from_string(
         raise ValueError(f"Unexpected modality: `{modality}`")
 
 
-# }}}
-
-# %% CHUNK: Read in 10X index sheets {{{
-def read_10x_index_sheets(*args, workflow):
+# %% FUNC: Read in 10X Chromium dual index sheets {{{
+def read_10x_chromium_dual_index_sheets(*args, workflow):
     column_renamer = {
         "index_name": "index_name",
         "index(i7)": "i7",
@@ -39,7 +37,20 @@ def read_10x_index_sheets(*args, workflow):
 
     tenx_idx = pd.concat(tenx_index_sheets, axis=0)[
         ["index_name", "i7", f"i5_workflow_{workflow}"]
-    ]
+    ].set_indx("index_name", keep=False)
     return tenx_idx
 
-     # }}}
+# %% FUNC: Read in 10X Chromium single index sheets {{{
+# Files must be in CSV format
+# Files must have no column names
+# Rows should have the name of the 10x index in the first column
+# Index names must correspond to values in the `index_name` column referenced in pmbi/cellranger/1_make_bcl2fastq_samplesheet.py
+# Additional columns (n>=1) should contain all index sequences to associate with the index name in the first column
+def read_10x_chromium_single_index_sheets(*sheet_paths):
+    sheets = []
+    for sp in sheet_paths:
+        s = pd.read_csv(sp, sep=",", header=None).set_index(0)
+        sheets.append(s)
+
+    return pd.concat(sheets)
+

@@ -7,10 +7,11 @@ from traceback import format_list
 import awkward as ak
 import pandas as pd
 import numpy as np
+import toolz
 
 # %% CHUNK: This function wraps re.search to pull a substring from a string - substring should be under capture group 1 {{{
 def get_substring(string: str, pattern: str) -> str:
-    s = re.search(pattern, os.path.basename(string))
+    s = re.search(pattern, string)
     if s is not None:
         if len(s.groups()) > 1:
             raise ValueError(
@@ -24,6 +25,18 @@ def get_substring(string: str, pattern: str) -> str:
         )
 # }}}
 
+def substring_detected(pattern: str, string: str) -> bool:
+    s = re.search(pattern, string)
+    if s is not None:
+        return True
+    else:
+        return False
+
+# %%
+def kwargs_to_cli_flags(**kwargs):
+    return list(toolz.concat([[f"--{k}", v] for k, v in kwargs.items()]))
+
+# %%
 def ak_print(arr: ak.Array) -> None:
     pprint(ak.to_list(arr))
 
@@ -104,14 +117,6 @@ def symlink_is_valid(path: os.PathLike) -> bool:
             raise ValueError(f"Path is not a symlink: {path}")
     else:
         raise ValueError(f"Path does not exist: {path}")
-
-
-# %%
-symlink_is_valid("/home/amsesk/super1/t1d-coculture/all_fastq_symlinks/HPAP-135_CC_1_ADT_S49_L001_R1_001.fastq.gz")
-symlink_is_valid("/home/amsesk/super1/t1d-coculture/blahblah")
-
-Path(Path(Path("/home/am")))
-
 
 # %%
 
