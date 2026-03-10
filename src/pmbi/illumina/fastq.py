@@ -1,8 +1,8 @@
 # %%
 import re
 import os
-import toolz
-from functools import jupartial
+# import toolz
+# from functools import partial
 import pandas as pd
 from natsort import natsort_keygen
 from itertools import chain
@@ -21,6 +21,16 @@ NO_LANE_SPLIT_FASTQ = f"_{SAMPLE_NUMBER}_{READ_NUMBER}_{SET_NUMBER}{EXT}"
 
 LANE_SPLIT_FASTQ_NO_INDEX = f"_({SAMPLE_NUMBER})_({LANE_NUMBER})_({READ_NUMBER_NO_INDEX})_({SET_NUMBER}){EXT}"
 NO_LANE_SPLIT_FASTQ_NO_INDEX = f"_({SAMPLE_NUMBER})_({READ_NUMBER_NO_INDEX})_({SET_NUMBER}){EXT}"
+
+# %%
+def is_lane_split_fastq(fn: str) -> bool:
+    if re.search(LANE_SPLIT_FASTQ, fn) is not None:
+        return True
+    else:
+        if re.search(NO_LANE_SPLIT_FASTQ, fn) is not None:
+            return False
+        else:
+            raise ValueError(f"filename doesn't matter either expected pattern: {fn}")
 
 # %%
 def filter_file_paths(fs: list[os.PathLike], matching_pattern=LANE_SPLIT_FASTQ_NO_INDEX):
@@ -76,6 +86,7 @@ def combine_lane_split_fastqs(
                     combined.write(fastq.read())
 
 # %%
-pa = "/home/amsesk/super2/jayme_shiv/data/cr_atac_mkfastq/outs/fastq_test/"
-combine_lane_split_fastqs(pa, output_dir="/home/amsesk/super2/jayme_shiv/data/cr_atac_mkfastq/outs/fastq_test/")
+if __name__ == "__main__":
+    pa = "/home/amsesk/super2/jayme_shiv/data/cr_atac_mkfastq/outs/fastq_test/"
+    combine_lane_split_fastqs(pa, output_dir="/home/amsesk/super2/jayme_shiv/data/cr_atac_mkfastq/outs/fastq_test/")
 
