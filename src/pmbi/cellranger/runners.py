@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from pathlib import Path
 from subprocess import SubprocessError
@@ -7,11 +8,12 @@ from typing import TYPE_CHECKING
 import toolz
 
 import pmbi.subproc as pmbiproc
-from pmbi.cellranger.cellranger_command import (
+from pmbi.cellranger.units import (
     CellrangerArcUnit,
     CellrangerMultiUnit,
     CellrangerUnit,
 )
+import pmbi.illumina.fastq as pfq
 from pmbi.logging import streamLogger
 
 # if TYPE_CHECKING:
@@ -51,7 +53,7 @@ class CellrangerAtacRunner(CellrangerRunner):
         self.logger = streamLogger("CellrangerAtacRunner")
 
     def _setup(self):
-        self.wd = Path(self.wd)
+        pass
 
     def _cmd(self) -> list[str]:
         return list(
@@ -66,12 +68,27 @@ class CellrangerAtacRunner(CellrangerRunner):
                         "--reference",
                         self.unit.reference,
                         "--fastqs",
-                        self.unit.fastqs
+                        self.unit.fastqs,
+                        "--sample",
+                        self.unit.sample
                     ]
                     + self.more_args()
                 ),
             )
         )
+        
+    def run(self):
+        if self.outs_dest.exists():
+            mes = f"Output directory exists. Skipping myself: {self.id}"
+            self.logger.critical(mes)
+            raise OSError(mes)
+        else:
+            cmd_logger = streamLogger("cellranger-atac")
+            self._setup()
+            self.logger.info(f"Changing directory: {self.wd}")
+            os.chdir(self.wd)
+            pmbiproc.run_and_log(cmd=self._cmd(), logger=cmd_logger)
+            # self.cleanup()
 
 class CellrangerArcRunner(CellrangerRunner):
     def __init__(self, unit: CellrangerArcUnit, wd: Path = Path("."), **kwargs):
@@ -121,7 +138,6 @@ class CellrangerArcRunner(CellrangerRunner):
             os.chdir(self.wd)
             pmbiproc.run_and_log(cmd=self._cmd(), logger=cmd_logger)
             # self.cleanup()
-
 
 class CellrangerMultiRunner(CellrangerRunner):
     def __init__(self, unit: CellrangerMultiUnit, wd: Path = Path("."), **kwargs):
@@ -177,36 +193,3 @@ class CellrangerMultiRunner(CellrangerRunner):
             # self.cleanup()
 
 
-# class CellrangerMultiRunner(CellrangerRunner):
-#     def __init__(self, unit: CellrangerUnit, wd: Path = Path("."), **kwargs):
-#         super().__init__(unit, wd, **kwargs)
-#         self.csv_base = Path(f"{self.id}__config.csv")
-#
-#     def cmd(self) -> list[str]:
-#         return list(map(str, (
-#             ["cellranger", "multi", "--id", self.id, "--csv", self.csv_base]
-#                 + self.more_args()
-#         )))
-#     def setup(self) -> None:
-#         pass
-#
-#     def cleanup(self) -> None:
-#         outs_src = self.wd / self.id / "outs"
-#         outs_dest = self.outs_dest
-#         shutil.copytree(outs_src, outs_dest)
-#         shutil.rmtree(self.wd / self.id)
-#         self.csv_base.unlink()
-#
-#     def run(self):
-#         if self.outs_dest.exists():
-#             mes = f"Output directory exists. Skipping myself: {self.id}"
-#             self.logger.critical(mes)
-#             raise OSError(mes)
-#         else:
-#             logger = streamLogger("cellranger_multi")
-#             logger.info(f"Changing directory: {self.wd}")
-#             os.chdir(self.wd)
-#             logger.info(f"Writing config csv to: {self.wd / self.csv_base}")
-#             self.unit.config_csv.write(self.csv_base)
-#             pmbiproc.run_and_log(cmd=self.cmd(), logger=logger)
-#             self.cleanup()
