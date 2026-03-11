@@ -5,6 +5,8 @@ import os
 from itertools import chain
 from pathlib import Path
 from typing import Optional
+import re
+import yaml
 
 import natsort
 import pandas as pd
@@ -94,7 +96,7 @@ class CellrangerCollection:
                         self.config.filename_patterns.exclude, fb
                     )
             if add_file:
-                filtered.append(fb)
+                filtered.append(f)
         return filtered
 
     # def _feature_type_converter(self):
@@ -170,3 +172,21 @@ class CellrangerCollection:
         csv_df.to_csv(buf, sep=",", index=False)
         buf.seek(0)
         return buf
+
+    def to_scc_proc_sample_config_yaml(self, modalities:list[str]=["ADT", "HTO"], sample_regex:str|None=None):
+        if sample_regex is not None:
+            self.table["sample"] = self.table["sample"].apply(lambda s: re.search(sample_regex, s).group(0))
+        table = self.table[self.table["modality"].isin(modalities)]
+        table["modality"] = table["modality"].astype(str)
+        samples_list = []
+        for s in table["sample"].unique():
+            stable = table[table["sample"]==s]
+            modal_grouped = stable.groupby("modality").apply(lambda g: [os.fspath(p) for p in g["read_filename"].to_list()])
+            modal_grouped.index = pd.Index([f"{m.lower()}_fastqs" for m in modal_grouped.index])
+            d = {"name": s}
+            d.update(modal_grouped.to_dict())
+            samples_list.append(d)
+
+        return yaml.dump({"samples": samples_list}, sort_keys=False)
+# %%
+
