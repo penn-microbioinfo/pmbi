@@ -1,22 +1,25 @@
 from __future__ import annotations
+
 import logging
-import h5py
 import os
 import pickle
 from pathlib import Path
 
 import anndata
+import h5py
 import numpy
 import pandas as pd
 import scanpy as sc
 import scipy.io
 import scipy.sparse
+from scipy.sparse import isspmatrix_csr,isspmatrix_csc
 from scirpy.io._convert_anndata import from_airr_cells
 from scirpy.io._datastructures import AirrCell
 
 import pmbi.anndata.get
 from pmbi.airr.schema import calls_to_imgt_locus_names, get_airr_schema
 from pmbi.io import get_key_default
+
 
 # %%
 class AnnDataParts:
@@ -26,32 +29,45 @@ class AnnDataParts:
         self.var = var
 
     @staticmethod
-    def from_mtx(mtx_path: os.PathLike , obs_names_path: os.PathLike, var_names_path: os.PathLike) -> AnnDataParts:
+    def from_mtx(
+        mtx_path: os.PathLike, obs_names_path: os.PathLike, var_names_path: os.PathLike
+    ) -> AnnDataParts:
         mtx = scipy.io.mmread(mtx_path).tocsr()
         obs = pd.DataFrame(
             index=pd.read_csv(
                 obs_names_path,
                 header=None,
-            ).iloc[:, 0])
+            ).iloc[:, 0]
+        )
         var = pd.DataFrame(
             index=pd.read_csv(
                 var_names_path,
                 header=None,
-            ).iloc[:, 0])
+            ).iloc[:, 0]
+        )
         return AnnDataParts(mtx, obs, var)
 
+
 # %%
-def read_mtx(mtx_path: os.PathLike , obs_names_path: os.PathLike, var_names_path: os.PathLike) -> anndata.AnnData:
+def read_mtx(
+    mtx_path: os.PathLike, obs_names_path: os.PathLike, var_names_path: os.PathLike
+) -> anndata.AnnData:
     parts = AnnDataParts.from_mtx(mtx_path, obs_names_path, var_names_path)
     return anndata.AnnData(X=parts.mtx, obs=parts.obs, var=parts.var)
 
 
 def write_mtx(
-    adata: anndata.AnnData, output_dir: os.PathLike, layer: str | None = None, write_obs = True, write_var = True
+    adata: anndata.AnnData,
+    output_dir: os.PathLike,
+    layer: str | None = None,
+    write_obs=True,
+    write_var=True,
 ) -> None:
     output_dir = Path(output_dir)
     if not output_dir.exists():
-        output_dir.mkdir(parents = True, exist_ok = False) # Will raies FileExistsError if exists
+        output_dir.mkdir(
+            parents=True, exist_ok=False
+        )  # Will raies FileExistsError if exists
     obs_out = output_dir.joinpath("obs.csv")
     var_out = output_dir.joinpath("var.csv")
     mat = pmbi.anndata.get.counts(adata, layer=layer)
@@ -61,10 +77,9 @@ def write_mtx(
             scipy.io.mmwrite(cout, mat)
     else:
         counts_out = output_dir.joinpath("counts.h5")
-        h5f = h5py.File(counts_out, 'w')
+        h5f = h5py.File(counts_out, "w")
         h5f.create_dataset("counts", data=mat)
         h5f.close()
-
 
     if write_obs:
         adata.obs.to_csv(path_or_buf=obs_out, sep=",", index_label="barcode")
@@ -72,12 +87,59 @@ def write_mtx(
     if write_var:
         adata.var.to_csv(path_or_buf=var_out, sep=",", index_label="feature")
 
-def export(
-    adata: anndata.AnnData, output_dir: os.PathLike
-    ):
+
+def to_h5(adata: anndata.AnnData, outpath: Path):
+    with h5py.File(outpath, "w") as h5file:
+
+        # Add axes names (i.e., obs_names and var_names)
+        names_grp = h5file.create_group("dimnames")
+        names_grp.create_dataset(
+            name="barcodes", data=adata.obs_names.to_numpy(), shape=(adata.shape[0])
+        )
+        names_grp.create_dataset(
+            name="features", data=adata.var_names.to_numpy(), shape=(adata.shape[1])
+        )
+
+        # Add X
+        if isspmatrix_csr(adata.X):
+            x_grp = h5file.create_group("X")
+            x_grp.create_dataset(
+                name="data", data=adata.X.data, shape=adata.X.data.shape
+            )
+            x_grp.create_dataset(
+                name="indices", data=adata.X.indices, shape=adata.X.indices.shape
+            )
+            x_grp.create_dataset(
+                name="indptr", data=adata.X.indptr, shape=adata.X.indptr.shape
+            )
+            x_grp.create_dataset(name="shape", data=adata.X.shape, shape=(2,))
+        else:
+            raise ValueError(f"Expected csr_matrix, got: {type(adata.X)}")
+
+        layers_grp = h5file.create_group("layers")
+        for lk in adata.layers:
+            layer_grp = layers_grp.create_group(lk)
+            layer_data = adata.layers[lk]
+            if isspmatrix_csr(layer_data):
+                layer_grp.create_dataset(
+                    name="data", data=layer_data.data, shape=layer_data.data.shape
+                )
+                layer_grp.create_dataset(
+                    name="indices", data=layer_data.indices, shape=layer_data.indices.shape
+                )
+                layer_grp.create_dataset(
+                    name="indptr", data=layer_data.indptr, shape=layer_data.indptr.shape
+                )
+                layer_grp.create_dataset(name="shape", data=layer_data.shape, shape=(2,))
+
+
+
+def export(adata: anndata.AnnData, output_dir: os.PathLike):
     output_dir = Path(output_dir)
     if not output_dir.exists():
-        output_dir.mkdir(parents = True, exist_ok = False) # Will raies FileExistsError if exists
+        output_dir.mkdir(
+            parents=True, exist_ok=False
+        )  # Will raise FileExistsError if exists
 
     # Write count mtx from anndata.X
     write_mtx(adata, output_dir)
@@ -86,11 +148,17 @@ def export(
     layers_out = output_dir.joinpath("layers")
     layers_out.mkdir()
     for layer in adata.layers:
-        write_mtx(adata, output_dir = layers_out.joinpath(layer), layer=layer, write_obs=False, write_var=False)
+        write_mtx(
+            adata,
+            output_dir=layers_out.joinpath(layer),
+            layer=layer,
+            write_obs=False,
+            write_var=False,
+        )
 
     # Wrtie out obsm items into on h5 file
-    h5f = h5py.File(output_dir.joinpath("obsm.h5"), 'w')
-    for key,value in adata.obsm.items():
+    h5f = h5py.File(output_dir.joinpath("obsm.h5"), "w")
+    for key, value in adata.obsm.items():
         h5f.create_dataset(key, data=value)
     h5f.close()
 
@@ -141,6 +209,7 @@ def read_matrix(path: Path, **kwargs) -> anndata.AnnData:
             return anndata.read_h5ad(str(path), **kwargs)
         else:
             raise ValueError(f"Unsupported filetype: {path.suffix}")
+
 
 def read_matrix_multi(
     paths: list[Path], getkey=get_key_default

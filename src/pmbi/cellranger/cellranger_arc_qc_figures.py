@@ -3,11 +3,13 @@ from typing import Optional, Union
 import matplotlib.axes
 import mudata
 import muon.atac as atac
+import muon as mu
 import numpy as np
 import pandas as pd
 import pysam
 import snapatac2.genome
 from sklearn.neighbors import KernelDensity
+import snapatac2
 
 import pmbi.plotting as pmbip
 from pmbi.wrappers.scanpy import calc_umi_per_bc
@@ -17,30 +19,76 @@ from pmbi.wrappers.scanpy import calc_umi_per_bc
 def tss_enrichment(
     mdata: mudata.MuData,
     n_tss: int = 2000,
-    extend_upstream: int = 1000,
-    extend_downstream: int = 1000,
+    extend_upstream: int = 2000,
+    extend_downstream: int = 2000,
+    features: Union[pd.DataFrame, None] = None,
+    **kwargs
 ):
-    fragments = pysam.TabixFile(
-        mdata["atac"].uns["files"]["fragments"], parser=pysam.asBed()
-    )
-    feats = atac.tl.get_gene_annotation_from_rna(mdata)
-    feats_filt = feats[feats.Chromosome.isin(fragments.contigs)]
-    feats_with_window = []
-    for row in feats_filt.itertuples():
+    """
+    Calculates enrichment scores for positions up and downstream of gene TSSs.
+
+    Args:
+        mdata (muon.Mdata):
+        n_tss (int):
+        extend_upstream (int):
+        extend_downstream (int):
+        features (pd.DataFrame): DataFrame with (atleast) the columns Chromosome, Start, and End; 
+            feature ids (e.g., `gene_id` from GTF) should be in the index
+
+    Raises:
+        ValueError: For a variety of argument checks
+        KeyError: If path to the fragments file is missing from MuData["atac"].uns["files"]
+
+    Returns:
+        anndata.AnnData: contains enrichment scores
+
+    Example:
+
+    """
+    if "atac" not in mdata.mod_names:
+        raise ValueError("expected MuData with 'atac' modality")
+
+    if "rna" in mdata.mod_names:
+        features = atac.tl.get_gene_annotation_from_rna(mdata)
+    else:
+        if features is None:
+            raise ValueError(
+                "`features` must be provided if there is no 'rna' modalitiy in MuData"
+            )
+        else:
+            expected_cols = ["Chromosome", "Start", "End"]
+            if not all([c in features.columns for c in expected_cols]):
+                raise ValueError(
+                    f"features dataframe must have columns: {expected_cols}"
+                )
+
+    try:
+        fragments = pysam.TabixFile(
+            mdata["atac"].uns["files"]["fragments"], parser=pysam.asBed()
+        )
+    except KeyError:
+        raise KeyError(
+            "expected path to fragments file in AnnData.uns['files']['fragments']"
+        )
+
+    features_filt = features[features.Chromosome.isin(fragments.contigs)]
+    features_with_window = []
+    for row in features_filt.itertuples():
         try:
             _ = fragments.fetch(
                 row.Chromosome, row.Start - extend_upstream, row.End + extend_downstream
             )
-            feats_with_window.append(row.gene_id)
+            features_with_window.append(row.Index)
         except ValueError:
             pass
-    feats_filt = feats_filt.loc[feats_with_window, :]
+    features_filt = features_filt.loc[features_with_window, :]
     return atac.tl.tss_enrichment(
         mdata,
-        features=feats_filt,
+        features=features_filt,
         n_tss=n_tss,
         extend_upstream=extend_upstream,
         extend_downstream=extend_downstream,
+        **kwargs,
     )
 
 
@@ -48,16 +96,20 @@ def tss_enrichment_plot(
     mdata: mudata.MuData,
     ax: matplotlib.axes.Axes,
     n_tss: int = 2000,
-    extend_upstream: int = 1000,
-    extend_downstream: int = 1000,
+    extend_upstream: int = 2000,
+    extend_downstream: int = 2000,
+    features: Union[pd.DataFrame, None] = None,
     color="red",
     fill_alpha=0.2,
+    **kwargs
 ):
     tsse = tss_enrichment(
         mdata=mdata,
         n_tss=n_tss,
         extend_upstream=extend_upstream,
         extend_downstream=extend_downstream,
+        features=features,
+        **kwargs,
     )
     x = tsse.var["TSS_position"]
     means = tsse.X.mean(axis=0)
@@ -193,4 +245,90 @@ def adt_ab_total_v_control_counts_plot(mdata: mudata.MuData, ax: matplotlib.axes
     )
 
 
+def peak_counts_scatter_with_dist(mdata, axs):
+    ic_pal = {"Is cell": "#118dff", "Not cell": "#ae12a7"}
+    adata = mdata["atac_raw"]
+    fop_per_bc = pd.Series(np.asarray(adata.X.sum(axis=1)).reshape(-1)).to_numpy()
+    fop_per_bc_plt = (
+        pd.DataFrame(
+            {
+                "fop_per_bc": fop_per_bc,
+                "cr_is_cell_str": adata.obs["cr_is_cell_str"].to_numpy(),
+            },
+        )
+        .sort_values("fop_per_bc", ascending=False)
+        .pipe(lambda df: df.assign(sort_idx=np.arange(0, df.shape[0])))
+    )
+    ccm = pmbip.CategoricalColormap(
+        values=fop_per_bc_plt["cr_is_cell_str"], colors=ic_pal
+    )
+    nsteps = 100
+    xmax = adata.shape[0]
+    xmax_log = np.log10(xmax)
+    idx_step = xmax_log / nsteps
+    si_plt = {}
+    for c in ["Is cell", "Not cell"]:
+        c_si = fop_per_bc_plt.loc[
+            fop_per_bc_plt["cr_is_cell_str"] == c, "sort_idx"
+        ].to_numpy()
+        c_si_log = np.log10(c_si + 1)
+        kde = KernelDensity(kernel="gaussian", bandwidth=idx_step).fit(
+            c_si_log[:, np.newaxis]
+        )
+        x = np.arange(0, xmax_log, step=idx_step * (1e-1))[:, np.newaxis]
+        si_plt[c] = {"x": (10 ** (x)) - 1, "y": np.exp(kde.score_samples(x))}
+    axs[0].plot(
+        si_plt["Is cell"]["x"],
+        si_plt["Is cell"]["y"],
+        color=ic_pal["Is cell"],
+        linewidth=0.8,
+    )
+    axs[0].plot(
+        si_plt["Not cell"]["x"],
+        si_plt["Not cell"]["y"],
+        color=ic_pal["Not cell"],
+        linewidth=0.8,
+    )
+    axs[0].set(
+        xlim=[1e0, xmax],
+        xscale="log",
+        ylabel="density",
+    )
+    axs[1].scatter(
+        fop_per_bc_plt["sort_idx"],
+        fop_per_bc_plt["fop_per_bc"],
+        c=ccm.encoded(),
+        cmap=ccm.cmap(),
+        norm=ccm.norm(),
+        s=1.5,
+        alpha=0.5,
+    )
+    axs[1].set(
+        ylim=[1e0, fop_per_bc_plt["fop_per_bc"].max()],
+        xlim=[1e0, xmax],
+        xscale="log",
+        yscale="log",
+        xlabel="barcodes",
+        ylabel="Total peak counts",
+    )
+    scatter_leg = pmbip.Legend.from_mpl_color_dict(ccm.mpl_color_dict())
+    scatter_leg.on_ax(axs[1])
+
 # %%
+
+def asap_qc_panel(mdata: mu.MuData, genome: snapatac2.genome.Genome, features: pd.DataFrame):
+    design = [
+        ["bc_counts_distr", "bc_counts_distr"],
+        ["bc_counts", "bc_counts"],
+        ["bc_counts", "bc_counts"],
+        ["fragment_size", "tss_enrichment"],
+        ["adt1", "adt2"]
+    ]
+    mosaic=pmbip.MosaicPaneler(design=design, figsize=(5,8))
+    peak_counts_scatter_with_dist(mdata=mdata, axs=list(mosaic.get_axs(keys=["bc_counts_distr", "bc_counts"]).values()))
+    fragment_size_distr_plot(mdata=mdata, genome=genome, ax=mosaic.get_ax("fragment_size"), linewidth=0.5, c="green")
+    tss_enrichment_plot(mdata=mdata, ax=mosaic.get_ax("tss_enrichment"), color="green", features=features, barcodes="original_barcode")
+    adt_ab_total_v_detected_plot(mdata, mosaic.get_ax("adt1"))
+    adt_ab_total_v_control_counts_plot(mdata, mosaic.get_ax("adt2"))
+    return mosaic
+

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 from pathlib import Path
+import copy
 
 import pandas as pd
 import toolz
@@ -15,7 +16,7 @@ class CellrangerUnit:
         self.config = config
         self.files = files
         self.sample = self._validate_single_sample()
-        self.modalities = {m.name: m for m in self.config.modalities}
+        self.modalities = {m.name: m for m in copy.deepcopy(self.config.modalities)}
         self.samples = None
         self.SUPPORTED_MODALITIES = []
         self.REQUIRED_MODALITIES = []
@@ -93,8 +94,7 @@ class CellrangerMultiUnit(CellrangerUnit):
 
         # Check to see if a combined antibody reference is necessary (ie antibody catalog + HTO catalog)
         if "ADT" in self.modalities and "HTO" in self.modalities:
-            pass
-            # self._combined_adt_hto_ref()
+            self._combined_adt_hto_ref()
 
     def _combined_adt_hto_ref(self, modality_keys=["ADT", "HTO"]):
         req_columns = pd.Series(
@@ -120,7 +120,8 @@ class CellrangerMultiUnit(CellrangerUnit):
             "w", delete=False, delete_on_close=False
         ) as th:
             self._tempfile_paths["adt_hto_combined_ref"] = th.name
-            pd.concat(ref_dfs, axis=0).to_csv(th, sep=",", index=False)
+            comb_df = pd.concat(ref_dfs, axis=0)
+            comb_df.to_csv(th, sep=",", index=False)
             for mk in modality_keys:
                 self.modalities[mk].reference = th.name
 
@@ -167,7 +168,7 @@ class CellrangerMultiUnit(CellrangerUnit):
     def _csv_feature_type_sections(self) -> dict[str, pd.DataFrame]:
         section_headers = set([self.CSV_SECTION_HEADERS[m] for m in self.modalities])
         sections = {}
-        skip_keys = ["name"]
+        skip_keys = ["name", "fastqs"]
         for s in section_headers:
             section_values = {}
             mods = toolz.valfilter(lambda v: v == s, self.CSV_SECTION_HEADERS)
@@ -224,6 +225,9 @@ class CellrangerAtacUnit(CellrangerUnit):
         self.reference = self.modalities["ATAC"].reference
         self.fastqs = self.modalities["ATAC"].fastqs
 
+        # Needed because cellranger-atac does not use the CSV-config approach
+        self.sample = f"{self.sample}_ATAC"
+
 
 class CellrangerArcUnit(CellrangerUnit):
     def __init__(self, table: pd.DataFrame, config: Munch, files: list[Path]):
@@ -245,7 +249,7 @@ class CellrangerArcUnit(CellrangerUnit):
             )
         else:
             self.reference = self.config.run.reference
-
+        
     def config_csv(self) -> io.StringIO:
         csv = io.StringIO()
         csv.write("fastqs,sample,library_type\n")
@@ -260,3 +264,28 @@ class CellrangerArcUnit(CellrangerUnit):
 
 
 # %%
+class StarSoloUnit(CellrangerUnit):
+    def __init__(self, table: pd.DataFrame, config: Munch, files: list[Path]):
+        super().__init__(table, config, files)
+        self.CSV_LIBRARY_TYPES = {
+            "GEX": "Gene Expression",
+        }
+        self.SUPPORTED_MODALITIES = list(self.CSV_LIBRARY_TYPES.keys())
+        self.REQUIRED_MODALITIES = self.SUPPORTED_MODALITIES
+        if not self._verify_modalities():
+            raise ValueError("STARsolo requires, exclusively, GEX modalities")
+
+        if not hasattr(self.config.run, "barcode_whitelist"):
+            raise ValueError(
+                "STARsolo config is missing the required `run.barcode_whitelist` configuration option"
+            )
+        if not hasattr(self.modalities["GEX"], "reference"):
+            raise ValueError(
+                "STARsolo config is missing the required `modalities.GEX.reference` configuration option"
+            )
+
+        self.reference = self.modalities["GEX"].reference
+        self.read2 = ','.join(self.table[self.table["read_number"]=="R2"]["read_path"].astype(str).sort_values().to_list())
+        self.read1 = ','.join(self.table[self.table["read_number"]=="R1"]["read_path"].astype(str).sort_values().to_list())
+# %%
+

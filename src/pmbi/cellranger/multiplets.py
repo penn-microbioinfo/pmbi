@@ -1,8 +1,6 @@
 import numpy as np
+from numpy.polynomial import Polynomial
 import pandas as pd
-
-global ChromiumNextGEMSingleCell3primeHTv3_1__multiplet_rates
-global ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
 
 ChromiumNextGEMSingleCell3primeHTv3_1__multiplet_rates = pd.DataFrame(
     {
@@ -18,5 +16,12 @@ ChromiumNextGEMSingleCell3primeHTv3_1__multiplet_rates = pd.DataFrame(
 )
 
 ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates = dict(ChromiumNextGEMSingleCell3primeHTv3_1__multiplet_rates)
+
+# %%
+def multiplet_fit(rates: pd.DataFrame, deg: int = 2) -> Polynomial:
+    fit = Polynomial.fit(rates["n_cells_loaded"], rates["multiplet_rate"], deg=deg)
+    return fit
+
+
 # %%
 

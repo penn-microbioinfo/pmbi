@@ -263,6 +263,10 @@ mult_rate_df = coculture_meta[coculture_meta["Library_Type"] == "RNA"][
 ].set_index("Sample_Name")
 
 # Estimate multiplet rates based on 2-degree polynomial fit to 10X stated rates
+import pmbi.cellranger.globals
+fit = 
+poly = multiplet_fit(pmbi.cellranger.globals.ChromiumNextGEMSingleCell3primeHTv3_1__multiplet_rates)
+
 mult_rates = ChromiumNextGEMSingleCell5primeHTv2__multiplet_rates
 mult_rate_coef = np.polyfit(
     mult_rates["n_cells_loaded"], mult_rates["multiplet_rate"], deg=2

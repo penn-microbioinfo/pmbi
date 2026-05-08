@@ -95,18 +95,20 @@ wells = ["well_1", "well_2", "well_3", "well_4", "well_5", "well_6"]
 for well in wells:
     adata = read_star_solo_mtx(
         f"/home/amsesk/super1/montse/STAR_runs/{well}Solo.out/Gene/filtered",
-        features_fn="feature_names.tsv"
+        features_fn="features.tsv"
     )
     add_star_solo_velocyto_layers(
         adata, f"/home/amsesk/super1/montse/STAR_runs/{well}Solo.out/Velocyto/filtered"
     )
-    adata.obs_names = list(map(lambda n: f"{n}-1", adata.obs_names))
-    adata = adata[pd.Series(adata.obs_names).isin(seu_adata.obs_names),:]
-    adata = adata[:,pd.Series(adata.var_names).isin(seu_adata.var_names)]
-    adata = adata[:,pd.Series(adata.var_names).drop_duplicates().index]
+    # adata.obs_names = list(map(lambda n: f"{n}-1", adata.obs_names))
+    # adata = adata[pd.Series(adata.obs_names).isin(seu_adata.obs_names),:]
+    # adata = adata[:,pd.Series(adata.var_names).isin(seu_adata.var_names)]
+    # adata = adata[:,pd.Series(adata.var_names).drop_duplicates().index]
+    adata.obs_names = adata.obs_names.to_series().apply(lambda bc: f"{bc}__well_{well}")
     solo_adatas[well]=adata
 
 # %%
+adata.obs_names
 
 solo_concat=anndata.concat(solo_adatas, axis=0)
 solo_concat = solo_concat[pd.Series(solo_concat.obs_names).drop_duplicates().index,:]

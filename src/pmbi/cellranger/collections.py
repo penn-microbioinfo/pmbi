@@ -16,11 +16,13 @@ from pmbi.cellranger.runners import (
     CellrangerArcRunner,
     CellrangerAtacRunner,
     CellrangerMultiRunner,
+    StarSoloRunner,
 )
 from pmbi.cellranger.units import (
     CellrangerArcUnit,
     CellrangerAtacUnit,
     CellrangerMultiUnit,
+    StarSoloUnit,
 )
 from pmbi.file_handlers import Backend, LocalBackend
 from pmbi.util.misc import get_substring, substring_detected
@@ -68,6 +70,9 @@ class CellrangerCollection:
             case "multi":
                 self.UnitType = CellrangerMultiUnit
                 self.RunnerType = CellrangerMultiRunner
+            case "STARsolo":
+                self.UnitType = StarSoloUnit
+                self.RunnerType = StarSoloRunner
             case _:
                 raise ValueError(
                     f"Invalid `run.cellranger_flavor` in config: {self.config.run.cellranger_flavor}"

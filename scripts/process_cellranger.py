@@ -89,4 +89,4 @@ if __name__ == "__main__":
         logger.info("-" * 25)
 
     else:
-        _out = Parallel(n_jobs=config.run.njobs)(delayed(r.run)() for r in runners)
+        _out = Parallel(n_jobs=config.run.n_jobs)(delayed(r.run)() for r in runners)

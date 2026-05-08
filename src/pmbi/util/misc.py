@@ -9,16 +9,16 @@ import pandas as pd
 import numpy as np
 import toolz
 
-# %% CHUNK: This function wraps re.search to pull a substring from a string - substring should be under capture group 1 {{{
-def get_substring(string: str, pattern: str) -> str:
+# %% CHUNK: This function wraps re.search to pull a substring from a string based on the pattern and group index provided {{{
+def get_substring(string: str, pattern: str, group: int = 1) -> str:
     s = re.search(pattern, string)
     if s is not None:
-        if len(s.groups()) > 1:
+        if len(s.groups()) < group :
             raise ValueError(
-                f"More than one matching substring for pattern `{pattern}` in string: {string}"
+                f"Not enough matching groups to pull group index `{group}` in pattern `{pattern}` from string: {string}"
             )
         else:
-            return s.group(1)
+            return s.group(group)
     else:
         raise ValueError(
             f"No match found for pattern `{pattern}` in string: `{string}`"

@@ -129,13 +129,16 @@ def cluster_leiden(adata, resolutions, **kwargs):
 
 
 # implementation of sc.pp.normalize_geometric(adt) from https://github.com/scverse/scanpy/pull/1117
-def clr_normalize(adata: anndata.AnnData) -> anndata.AnnData:
+def clr_normalize(adata: anndata.AnnData, layer_added: str = "clrnorm") -> anndata.AnnData:
     adata = adata.copy()
     counts_nda = adata.X.toarray()
-    adata.X = scipy.sparse.csr_matrix(
-        np.divide(counts_nda, scipy.stats.mstats.gmean(counts_nda + 1, axis=0))
+     
+    adata.layers[layer_added] = (
+        scipy.sparse.csr_matrix(
+            np.divide(counts_nda, scipy.stats.mstats.gmean(counts_nda + 1, axis=0))
+        )
+        .log1p()
     )
-    sc.pp.log1p(adata)
     return adata
 
 
@@ -415,7 +418,12 @@ def manual_qc_cutoffs_to_dict(csv, sample_column):
     return d
 
 
-def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = True):
+def std_gex(
+        adata: anndata.AnnData, 
+        sample_suffix: str = "sample", 
+        plot: bool = True,
+        regress_qc_vars = True,
+        ):
 
     adata.raw = adata.copy()
 
@@ -425,9 +433,10 @@ def std_gex(adata: anndata.AnnData, sample_suffix: str = "sample", plot: bool = 
 
     adata = adata[:, adata.var.highly_variable]
 
-    adata.layers["totalcounts_pctmt_regressed_out"] = sc.pp.regress_out(
-        adata, ["total_counts", "pct_counts_mt"], copy=True
-    ).X
+    if regress_qc_vars:
+        adata.layers["totalcounts_pctmt_regressed_out"] = sc.pp.regress_out(
+            adata, ["total_counts", "pct_counts_mt"], copy=True
+        ).X
 
     adata.layers["scale_data"] = sc.pp.scale(adata, max_value=10, copy=True).X
 

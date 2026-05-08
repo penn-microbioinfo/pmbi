@@ -208,6 +208,10 @@ class MosaicPaneler:
 
     def get_ax(self, key: str):
         return self.axes_dict[key]
+    
+    def get_axs(self, keys: list[str]):
+        return {k:self.get_ax(k) for k in keys}
+
 
     
 

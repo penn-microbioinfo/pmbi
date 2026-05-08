@@ -30,7 +30,6 @@ ccc = crc.CellrangerCollection(
 
 # %%
 wd = Path("/home/amsesk/super2/jayme_shiv")
-
 scc_proc_wd = wd.joinpath("scc-proc_outs")
 samples = ccc.table["sample"].drop_duplicates().tolist()
 
@@ -98,7 +97,7 @@ for s in samples:
     adt_adata_sub = adt_adata[shared_adt_raw_arc,:]
     # Add MT annotations to gene_ids for rna and atac adatas
     for modal in ["rna"]:
-        arc_raw_sub[modal].var.loc[mito_gene_ids,"gene_ids"] = arc_raw_sub[modal].var.loc[mito_gene_ids,"gene_ids"].apply(lambda gid: f"mt-{gid}")
+        arc_raw_sub[modal].var.loc[mito_gene_ids,"gene_ids"] = arc_raw_sub[modal].var.loc[mito_gene_ids,q"gene_ids"].apply(lambda gid: f"mt-{gid}")
         arc_raw_sub[modal].var_names = arc_raw_sub[modal].var["gene_ids"]
         arc_raw_sub[modal].var["mito"] = arc_raw_sub[modal].var["gene_ids"].str.startswith("mt-")
     combined = mudata.MuData({
