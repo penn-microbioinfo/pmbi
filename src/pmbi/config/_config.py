@@ -2,8 +2,6 @@ from __future__ import annotations
 from typing import Union, Iterable, Tuple
 import copy
 
-import deepmerge
-import tomli_w
 import toolz
 from munch import Munch
 
@@ -48,12 +46,27 @@ class Config:
                 if not item.is_optional():
                     raise ValueError(f"Required Item `{item.toml_path}` is None")
 
-    def set_values_from_config(self, config: Config, inplace=True):
+    def set_values_from_config(self, config: Config, inplace=True) -> Union[Config,None]:
         for toml_path,item in config.items():
             if toml_path in self._index:
                 self[toml_path] = item.value
         if not inplace:
             return copy.deepcopy(self)
+
+    def set_values_from_dict(self, d: dict, inplace=True) -> Union[Config,None]:
+        for _p, item in self.items():
+           item.set_value_from_dict(d) 
+
+        if not inplace:
+            return copy.deepcopy(self)
+
+    def update_snakemake_config(self, smconfig) -> dict:
+        for k,v in self.to_dict().items():
+            if k in smconfig:
+                raise ValueError(f"{k} already snakemake config dict with value: {smconfig[k]}")
+            smconfig[k] = v
+
+        return smconfig
 
 
     @staticmethod
@@ -111,7 +124,7 @@ class Config:
                 raise ValueError("Invalid config spec with uneven levels")
         return d
 
-        return config_dict
-
     def into_toml(self):
         raise NotImplementedError
+# %%
+

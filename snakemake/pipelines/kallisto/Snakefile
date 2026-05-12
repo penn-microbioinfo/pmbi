@@ -1,0 +1,90 @@
+from pathlib import Path
+import os
+from pmbi.config import Config, import_config, RegexItem, PathItem, ChoiceItem, Item
+from pmbi.collections import ReadFileCollection
+from pmbi.rnaseq.kallisto import KallistoUnit
+import argparse
+
+##########################
+# Configuration
+##########################
+
+cfg_d = import_config(config["tomlcfg"])
+
+pmbiconfig = Config(
+    items=[
+        RegexItem("filename_patterns.sample_name", capture_groups=1),
+        RegexItem("filename_patterns.read_number", capture_groups=1),
+        RegexItem("filename_patterns.include", optional=True),
+        RegexItem("filename_patterns.exclude", optional=True),
+        PathItem("kallisto.reference", must_exist=True),
+        ChoiceItem("kallisto.mode", choices=["paired", "single"], type_=str),
+        Item("kallisto.nproc", int, optional=True, default=1),
+        Item("kallisto.force", bool, optional=True, default=False),
+        Item("kallisto.project_name", str, optional=False),
+    ]
+).set_values_from_dict(d=cfg_d, inplace=False)
+
+pmbiconfig.validate()
+
+# Transfer values from Config to snakemake config dict
+config = pmbiconfig.update_snakemake_config(config)
+
+##########################
+# File Collection
+##########################
+
+config["fastqs"] = config["fastqs"].split(',')
+rfc = ReadFileCollection(
+    path=[Path(x) for x in config["fastqs"]],
+    patterns=config["filename_patterns"],
+    sort_by=["sample_name", "read_number"],
+)
+
+units = rfc.get_units(unit_type=KallistoUnit, config=config)
+units_smpl_map = {u.sample_id: u for u in units}
+
+
+##########################
+# Snakemake Rules
+##########################
+rule all:
+    input:
+        f"counts/{config["kallisto"]["project_name"]}_kallisto_txi.rds",
+        f"counts/{config["kallisto"]["project_name"]}_ensembl_counts_matrix.tsv",
+        f"counts/{config["kallisto"]["project_name"]}_geneSymbolSummed_counts_matrix.tsv",
+        # expand("kallisto/{sample}/abundance.tsv", sample=units_smpl_map.keys())
+
+rule kallisto:
+    input:
+        read1 = lambda wildcards: units_smpl_map[wildcards.sample].read1,
+        read2 = lambda wildcards: units_smpl_map[wildcards.sample].read2,
+
+    output:
+        "kallisto/{sample}/abundance.h5",
+
+    params:
+        reference = os.path.join(config["kallisto"]["reference"], "index.idx"),
+        nproc = config["kallisto"]["nproc"],
+        outdir = lambda wildcards: f"kallisto/{wildcards.sample}",
+
+    run:
+        shell("/home/amsesk/.local/bin/kallisto quant -i {params.reference} -o {params.outdir} -t {params.nproc} {input.read1} {input.read2} &> {params.outdir}/kallisto.log"),
+
+rule kallisto2counts:
+    input:
+        [f"kallisto/{s}/abundance.h5" for s in units_smpl_map.keys()],
+
+    output:
+        f"counts/{config["kallisto"]["project_name"]}_kallisto_txi.rds",
+        f"counts/{config["kallisto"]["project_name"]}_ensembl_counts_matrix.tsv",
+        f"counts/{config["kallisto"]["project_name"]}_geneSymbolSummed_counts_matrix.tsv",
+
+    params:
+        t2g = os.path.join(config["kallisto"]["reference"], "t2g.txt"),
+        project_name = config["kallisto"]["project_name"],
+        kallisto2counts = workflow.source_path('scripts/kallisto2counts.R'),
+
+    run:
+        shell("Rscript {params.kallisto2counts} --t2g {params.t2g} --project {params.project_name} --outdir counts kallisto"),
+

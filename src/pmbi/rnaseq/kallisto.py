@@ -1,6 +1,9 @@
 import importlib
+import logging
+import os
+import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 import pandas as pd
 import toolz
@@ -9,32 +12,9 @@ from munch import Munch
 import pmbi.config._config as pmbiconf
 import pmbi.config.item as item
 from pmbi.collections import FileCollection
-from pmbi.logging import streamLogger
-
-
-class ProcessUnit:
-    def __init__(
-        self,
-        table: pd.DataFrame,
-        sample_name_column: str = "sample_name",
-        file_path_column: str = "path",
-    ):
-        self._clsname = self.__class__.__name__
-        self.table = table
-        self.files = self.table[file_path_column].to_list()
-        self.sample_name_column = sample_name_column
-        self.file_path_column = file_path_column
-
-        self.sample = self._validate_single_sample()
-
-    def _validate_single_sample(self) -> str:
-        """Ensure unit contains exactly one sample"""
-        unique_samples = self.table[self.sample_name_column].unique()
-        if len(unique_samples) != 1:
-            raise ValueError(
-                f"ProcessUnit must contain exactly one sample. Found: {unique_samples}"
-            )
-        return unique_samples[0]
+from pmbi.logging import stream_file_logger, streamLogger
+from pmbi.subproc.process_runner import ProcessRunner
+from pmbi.subproc.process_unit import ProcessUnit
 
 
 class KallistoUnit(ProcessUnit):
@@ -51,9 +31,9 @@ class KallistoUnit(ProcessUnit):
             pmbiconf.Config.from_items(
                 [
                     item.PathItem("kallisto.reference", must_exist=True),
-                    item.PathItem("kallisto.outdir", must_exist=True),
                     item.Item("kallisto.mode", str),
                     item.Item("kallisto.nproc", int, optional=True, default=1),
+                    item.Item("kallisto.force", bool, optional=True, default=False),
                 ]
             ).set_values_from_config(config, inplace=False)
         ).to_munch()
@@ -70,68 +50,49 @@ class KallistoUnit(ProcessUnit):
         self.read1 = read_indexed_table.loc["R1", file_path_column]
         self.read2 = read_indexed_table.loc["R2", file_path_column]
 
-class ProcessRunner:
-    def __init__(self, unit: ProcessUnit, wd: Path = Path("."), **kwargs):
-        self.logger = streamLogger(self.__class__.__name__)
-        self.unit = unit
-        self.wd = wd
-        self.kwargs = kwargs
-        self.binary = None
-
-    def _stringify(f: Callable) -> Callable:
-        def _inner(self):
-            return list(map(str, f(self)))
-
-        return _inner
-
-    @_stringify
-    def _cmd(self) -> list[str]:
-        return []
-
-    def _setup(self) -> None:
-        pass
-
-    def _cleanup(self) -> None:
-        pass
-
-    def more_args(self) -> list[str]:
-        """Convert kwargs to command line arguments"""
-        return list(toolz.concat([[f"--{k}", v] for k, v in self.kwargs.items()]))
-
-    def run(self) -> None:
-        cmd_logger = streamLogger(self.binary)
-        self._setup()
-        self.logger.info(f"Changing directory: {self.wd}")
-        os.chdir(self.wd)
-        try:
-            pmbiproc.run_and_log(cmd=self._cmd(), logger=cmd_logger)
-            self._cleanup()
-        except SubprocessError:
-            self.logger.critical("command run failed with SubprocessError")
-            self._cleanup()
 
 class KallistoRunner(ProcessRunner):
-    def __init__(self, unit: KallistoUnit, wd: Path = Path("."), **kwargs):
+    def __init__(self, unit: KallistoUnit, wd: Union[Path, str] = Path("."), **kwargs):
         super().__init__(unit, wd, **kwargs)
         self.binary = "kallisto"
+        self.cmd_logger = stream_file_logger(
+            self.clsname, self.wd.joinpath("kallisto.log")
+        )
 
     @ProcessRunner._stringify
     def _cmd(self) -> list[str]:
         return [
-                self.binary,
-                "quant",
-                "-i", self.unit.config.kallisto.reference,
-                "-o", self.unit.config.kallisto.outdir,
-                "-t", self.unit.config.kallisto.nproc,
-                self.unit.read1,
-                self.unit.read2,
-                ]
+            self.binary,
+            "quant",
+            "-i",
+            self.unit.config.kallisto.reference,
+            "-o",
+            self.sample_wd(),
+            "-t",
+            self.unit.config.kallisto.nproc,
+            self.unit.read1,
+            self.unit.read2,
+        ] + self.more_args()
 
     def _setup(self) -> None:
         super()._setup()
+        if self.sample_wd().exists():
+            if self.unit.config.kallisto.force:
+                self.logger.warning(
+                    f"Removing existing output directory because force==True: {self.sample_wd()}"
+                )
+                shutil.rmtree(self.sample_wd())
+            else:
+                raise OSError(
+                    f"Sample output directory exists and force==False. Skipping sample: {self.unit.sample_id}"
+                )
+
+        os.mkdir(self.sample_wd())
 
     def _cleanup(self) -> None:
         super()._cleanup()
 
-    def run(self):
+    def run(
+        self,
+    ):
         super().run()
