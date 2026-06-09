@@ -9,8 +9,7 @@ import pandas as pd
 import toolz
 from munch import Munch
 
-import pmbi.config._config as pmbiconf
-import pmbi.config.item as item
+from conpyg import Config, PathItem, Item
 from pmbi.collections import FileCollection
 from pmbi.logging import stream_file_logger, streamLogger
 from pmbi.subproc.process_runner import ProcessRunner
@@ -28,12 +27,12 @@ class KallistoUnit(ProcessUnit):
     ):
         super().__init__(table, sample_name_column, file_path_column)
         self.config: Munch = (
-            pmbiconf.Config.from_items(
+            Config.from_items(
                 [
-                    item.PathItem("kallisto.reference", must_exist=True),
-                    item.Item("kallisto.mode", str),
-                    item.Item("kallisto.nproc", int, optional=True, default=1),
-                    item.Item("kallisto.force", bool, optional=True, default=False),
+                    PathItem("kallisto.reference", must_exist=True),
+                    Item("kallisto.mode", str),
+                    Item("kallisto.nproc", int, optional=True, default=1),
+                    Item("kallisto.force", bool, optional=True, default=False),
                 ]
             ).set_values_from_config(config, inplace=False)
         ).to_munch()

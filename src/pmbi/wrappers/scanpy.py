@@ -429,7 +429,7 @@ def std_gex(
 
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(adata, n_top_genes=3000)
+    sc.pp.highly_variable_genes(adata, n_top_genes=3000, )
 
     adata = adata[:, adata.var.highly_variable]
 
@@ -445,7 +445,6 @@ def std_gex(
     sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
 
     sc.tl.umap(adata)
-    print("making names unique")
 
     if plot:
         sc.pl.highly_variable_genes(adata, save=f"_{sample_suffix}")

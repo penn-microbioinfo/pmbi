@@ -1,6 +1,6 @@
 from pathlib import Path
 import os
-from pmbi.config import Config, import_config, RegexItem, PathItem, ChoiceItem, Item
+from conpyg import Config, import_config, RegexItem, PathItem, ChoiceItem, Item
 from pmbi.collections import ReadFileCollection
 from pmbi.rnaseq.kallisto import KallistoUnit
 import argparse

@@ -16,3 +16,21 @@ def samflag_bin_repr(flag):
     str: A binary string representation of the input SAM flag.
     """
     return f"{flag:0>12b}"
+
+def samflag_to_dict(flag):
+    dict_keys = [
+            "read_paired",
+            "read_mapped_in_proper_pair",
+            "read_unmapped",
+            "mate_unmapped",
+            "read_reverse_strand",
+            "mate_reverse_strand",
+            "first_in_pair",
+            "second_in_pair",
+            "not_primary_alignment",
+            "read_fails_platform_vendor_quality_checks",
+            "read_is_pcr_or_optical_duplicate",
+            "supplementary_alignment"
+            ]
+    fbr = samflag_bin_repr(flag)
+    return {k:v for k,v in zip(dict_keys, fbr)}
