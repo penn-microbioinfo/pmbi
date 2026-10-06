@@ -107,11 +107,3 @@ def symlink_is_valid(path: os.PathLike) -> bool:
 
 
 # %%
-symlink_is_valid("/home/amsesk/super1/t1d-coculture/all_fastq_symlinks/HPAP-135_CC_1_ADT_S49_L001_R1_001.fastq.gz")
-symlink_is_valid("/home/amsesk/super1/t1d-coculture/blahblah")
-
-Path(Path(Path("/home/am")))
-
-
-# %%
-
