@@ -12,8 +12,6 @@ import numpy as np
 import palettable
 import pandas as pd
 
-
-x = "#ffffff"
 def _check_output_prefix(inner):
     @wraps(inner)
     def wrapper(self, *args, **kwargs):
