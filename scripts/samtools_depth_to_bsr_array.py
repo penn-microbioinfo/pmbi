@@ -8,10 +8,8 @@ import importlib
 import matplotlib.pyplot as plt
 from os import PathLike
 from typing import Iterable
+import re
 import pysam
-
-PREFIX=Path("/home/amsesk/super1")
-FIGS=Path("/home/amsesk/figures/anat")
 
 # %%
 def fai_into_chr_sizes(fai_path: PathLike):
@@ -43,7 +41,10 @@ def read_bam(bam_path: PathLike) -> pysam.AlignmentFile:
     return pysam.AlignmentFile(bam_path, "rb")
 
 # %%
+PREFIX=Path("/storage")
+FIGS=Path("/storage/anat/figures")
 
+# %%
 chr_sizes = fai_into_chr_sizes(PREFIX.joinpath("anat/genome_ref/GCA_037367395.2_aLitPip1_p1.2_genomic.fna.fai"))
 # D_arrs = stdepth_into_coo_arrays(PREFIX.joinpath("anat/sam/AES103_Pip1.sorted.bam.depth"), chr_sizes)
 
@@ -63,7 +64,7 @@ for aln in loci_bam:
 aln_df = pd.DataFrame(ldict)
 
 # %% Write BED of locus alignment regions
-aln_df[["reference", "ref_start", "ref_end", "query"]].to_csv("/media/md0/webServer/data/amsesk/loci_Pip1_regions.bed", sep="\t", index=False, header=False)
+# aln_df[["reference", "ref_start", "ref_end", "query"]].to_csv("/media/md0/webServer/data/amsesk/loci_Pip1_regions.bed", sep="\t", index=False, header=False)
 
 # %% Print some statistics about loci mapping to reference genome
 aln_df["query"].value_counts().reset_index(drop=False).sort_values(["count", "query"]).to_csv("/home/amsesk/figures/anat/locus_counts.csv", sep=",", index=True)
@@ -99,8 +100,12 @@ try:
 except:
     pass
 
+# %%
+# fs_pattern = "^23007FL"
+fs_pattern = "^[0-9]+[.]sorted[.]bam"
 for path in fs:
-    if path.name.startswith("23007FL") and path.name.endswith(".sorted.bam"):
+    s = re.search(fs_pattern, path.name)
+    if s is not None and path.name.endswith(".sorted.bam"):
         panel = pmbip.Paneler(10,5,(16,16),format="pdf", output_prefix=FIGS.joinpath(f"{path.name}_cov"))
         plt.close("all")
         plt.clf()
