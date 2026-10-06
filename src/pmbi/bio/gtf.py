@@ -1,5 +1,7 @@
 import re
 import io
+from typing import Union
+from pathlib import Path
 
 import copy
 import pandas as pd
@@ -92,25 +94,34 @@ class FeatureFile(object):
 
 
     @staticmethod
-    def from_gtf(handle):
-        ldict = []
-        for line in handle:
-            if not line.startswith("#"):
-                spl = [x.strip() for x in line.split("\t")]
-                # if spl[2] == "gene":
-                ann = [x.strip() for x in spl[8].split(";")]
-                d = dict()
-                d["seqname"] = spl[0]
-                d["source"] = spl[1]
-                d["feature"] = spl[2]
-                d["start"] = int(spl[3])
-                d["end"] = int(spl[4])
-                d["score"] = spl[5]
-                d["strand"] = spl[6]
-                d["frame"] = spl[7]
-                d["attributes"] = spl[8]
-                ldict.append(d)
-        return FeatureFile(features = pd.DataFrame(ldict))
+    def from_gtf(path_or_handle: Union[Path, io.IOBase]):
+        if isinstance(path_or_handle, io.IOBase):
+            ldict = []
+            for line in path_or_handle:
+                if not line.startswith("#"):
+                    spl = [x.strip() for x in line.split("\t")]
+                    # if spl[2] == "gene":
+                    ann = [x.strip() for x in spl[8].split(";")]
+                    d = dict()
+                    d["seqname"] = spl[0]
+                    d["source"] = spl[1]
+                    d["feature"] = spl[2]
+                    d["start"] = int(spl[3])
+                    d["end"] = int(spl[4])
+                    d["score"] = spl[5]
+                    d["strand"] = spl[6]
+                    d["frame"] = spl[7]
+                    d["attributes"] = spl[8]
+                    ldict.append(d)
+            return FeatureFile(features = pd.DataFrame(ldict))
+
+        elif isinstance(path_or_handle, Path):
+            with open(path_or_handle, "r") as h:
+                return FeatureFile.from_gtf(h)
+        
+        else:
+            raise ValueError("expected Path or IOBase")
+
         
 def parse_gtf(handle: io.TextIOWrapper) -> pd.DataFrame:
     """

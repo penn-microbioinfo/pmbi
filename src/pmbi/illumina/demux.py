@@ -12,6 +12,33 @@ import pandas as pd
 import pmbi.error as perr
 from pmbi.logging import list_loggers, streamLogger
 
+# %%
+class ReadInfo:
+    def __init__(self, length:int, is_index:bool):
+        self.length=length
+        self.is_index=is_index
+    def as_mask(self):
+        if self.is_index:
+            return f"I{self.length}"
+        else:
+            return f"Y{self.length}"
+
+# %%
+class RunInfo:
+    def __init__(self, reads):
+        self.reads = reads
+    @staticmethod
+    def cellranger_atac():
+        return RunInfo(reads = {
+            "R1":ReadInfo(50, False),
+            "I1":ReadInfo(10, True),
+            "I2":ReadInfo(16, False),
+            "R2":ReadInfo(50, False)
+        })
+    def base_mask(self):
+        return ",".join([r.as_mask() for r in self.reads.values()])
+    def min_read_len(self):
+        return min([x.length for x in self.reads.values()])
 
 def check_avail(binary, help="-h"):
     try:
@@ -119,6 +146,8 @@ def bcl2fastq_cmd(
     processing_threads=4,
     writing_threads=4,
     create_fastq_for_index_reads=False,
+    no_lane_splitting=True,
+    **kwargs
 ):
     cmd = [
         "bcl2fastq",
@@ -137,6 +166,8 @@ def bcl2fastq_cmd(
     ]
     if create_fastq_for_index_reads:
         cmd.append("--create-fastq-for-index-reads")
+    if no_lane_splitting:
+        cmd.append("--no-lane-splitting")
 
     return cmd
 
@@ -179,6 +210,12 @@ if __name__ == "__main__":
         required=False,
         help="Pass this flag to create index read fastq files",
     )
+    parser.add_argument(
+        "--no_lane_splitting",
+        action="store_true",
+        required=False,
+        help="Pass this flag to NOT make differenent files for different lanes",
+    )
 
     args = parser.parse_args()
 
@@ -205,6 +242,7 @@ if __name__ == "__main__":
             processing_threads=args.threads,
             writing_threads=args.threads,
             create_fastq_for_index_reads=args.create_fastq_for_index_reads,
+            no_lane_splitting=args.no_lane_splitting
         )
     elif args.backend == "bcl-convert":
         raise NotImplementedError

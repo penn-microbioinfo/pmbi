@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterator
 import subprocess
+from os import PathLike
 
 import pandas as pd
 from munch import Munch
@@ -19,11 +20,11 @@ from pmbi.util.misc import get_substring
 
 # %% CHUNK: SheetHandler - bad name as not inheriting from Handler {{{
 class SheetHandler(object):
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, sheet_name=0):
         self.path = path
         self.sheet = None
         if self.path.suffix == ".xlsx":
-            self.sheet = pd.read_excel(self.path)
+            self.sheet = pd.read_excel(self.path, sheet_name=sheet_name)
         elif self.path.suffix.lower() == ".csv":
             self.sheet = pd.read_csv(self.path, sep=",")
         elif self.path.suffix.lower() == ".tsv":
@@ -31,8 +32,15 @@ class SheetHandler(object):
         else:
             raise IOError(f"Unrecognized sheet filename extension {self.path.suffix}")
 
+# %%
+def excel_into_csv(path: os.PathLike, sep: str = ",", outdir: os.PathLike = Path(".")):
+    path = Path(path)
+    outdir = Path(outdir)
+    all_sheets = pd.read_excel(path, sheet_name=None) #setting sheet_name to None returns a dict with a DataFrame for each sheet
+    for name,sheet in all_sheets.items():
+        sheet.to_csv(f"{outdir}/{name}.csv", sep=sep, index=False)
 
-# }}}
+# excel_into_csv("/home/amsesk/super2/jayme_shiv/metadata/2025_07_31_ASAP_NHP_8tissue_ATAC_ADT_HTO_sampleinfo_libraryinformtion_1_24.xlsx", outdir="/home/amsesk/super2/jayme_shiv/metadata/2025_07_31_ASAP_NHP_8tissue_ATAC_ADT_HTO_sampleinfo_libraryinformtion_1_24__excel_split/")
 
 
 # %% CHUNK: Backends {{{
@@ -81,7 +89,7 @@ class S3Backend(Backend):
 class Handler(object):
     def __init__(
         self,
-        path: Path,
+        path: PathLike,
         pattern="[_]R[0-9][_].+[.]fastq[.]gz$",
         backend: Backend = LocalBackend(),
     ):
@@ -102,6 +110,7 @@ class Handler(object):
         #             raise NotImplementedError(f"Unsupported backend specified: {backend}")
         # # }}}
 
+        path = Path(path)
         self.filelist: list[Path] = self.backend._list_files(src=path)
 
         self._filter_filelist(pattern)
